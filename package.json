@@ -1,0 +1,21 @@
+{
+    "name": "algebraic-server-reconciliation",
+    "private": true,
+    "workspaces": [
+        "proof-of-concept"
+    ],
+    "dependencies": {
+        "prettier": "^3.5.3"
+    },
+    "prettier": {
+        "printWidth": 100,
+        "tabWidth": 4,
+        "semi": false,
+        "arrowParens": "avoid",
+        "endOfLine": "lf",
+        "plugins": [
+            "prettier-plugin-organize-imports",
+            "prettier-plugin-tailwindcss"
+        ]
+    }
+}
