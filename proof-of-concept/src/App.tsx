@@ -1,9 +1,7 @@
-import { useState } from "react"
+import { Sandbox } from "./sandbox/Sandbox"
 
 function App() {
-    const [count, setCount] = useState(0)
-
-    return <></>
+    return <Sandbox />
 }
 
 export default App
