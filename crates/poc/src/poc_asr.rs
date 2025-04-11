@@ -1,6 +1,6 @@
-use std::net::Ipv4Addr;
+use std::{any::TypeId, collections::HashMap, net::Ipv4Addr, sync::Arc};
 
-use bevy::prelude::*;
+use bevy::{ecs::component::ComponentId, prelude::*};
 use bevy_defer::{AsyncCommandsExtension, AsyncPlugin, AsyncWorld};
 use bevy_quinnet::{
     client::{
@@ -11,7 +11,9 @@ use bevy_quinnet::{
         self, certificate::CertificateRetrievalMode, ConnectionEvent, QuinnetServer,
         QuinnetServerPlugin, ServerEndpointConfiguration,
     },
-    shared::channels::ChannelsConfiguration,
+    shared::channels::{
+        ChannelId, ChannelKind, ChannelsConfiguration, DEFAULT_MAX_RELIABLE_FRAME_LEN,
+    },
 };
 use serde::{Deserialize, Serialize};
 
@@ -22,8 +24,8 @@ pub struct PocAsrClientPlugin {
 
 impl Plugin for PocAsrClientPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(QuinnetClientPlugin::default())
-            .add_plugins(PocAsrGamePlugin);
+        app.add_plugins(PocAsrGamePlugin)
+            .add_plugins(QuinnetClientPlugin::default());
 
         app.world_mut()
             .resource_scope(|_, mut client: Mut<QuinnetClient>| {
@@ -36,7 +38,7 @@ impl Plugin for PocAsrClientPlugin {
                             0,
                         ),
                         CertificateVerificationMode::SkipVerification,
-                        ChannelsConfiguration::default(),
+                        ClientChannel::channels_configuration(),
                     )
                     .expect("Failed to connect");
             })
@@ -50,8 +52,8 @@ pub struct PocAsrServerPlugin {
 impl Plugin for PocAsrServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(AsyncPlugin::default_settings())
-            .add_plugins(QuinnetServerPlugin::default())
             .add_plugins(PocAsrGamePlugin)
+            .add_plugins(QuinnetServerPlugin::default())
             .add_systems(FixedUpdate, update_server)
             .add_observer(server_on_connect);
 
@@ -63,7 +65,7 @@ impl Plugin for PocAsrServerPlugin {
                         CertificateRetrievalMode::GenerateSelfSigned {
                             server_hostname: Ipv4Addr::LOCALHOST.to_string(),
                         },
-                        ChannelsConfiguration::default(),
+                        ServerChannel::channels_configuration(),
                     )
                     .expect("Failed to serve")
             });
@@ -76,25 +78,6 @@ impl Plugin for PocAsrGamePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, startup_game);
     }
-}
-
-#[derive(Serialize, Deserialize)]
-enum ServerMessage {
-    State(ServerStateChanges),
-}
-
-#[derive(Serialize, Deserialize)]
-struct ServerStateChanges {
-    changes: Vec<ServerStateChangesPlayer>,
-}
-
-struct Change {}
-
-impl Change {}
-
-#[derive(Serialize, Deserialize)]
-enum ClientMessage {
-    Move { dir: Vec2 },
 }
 
 fn server_on_connect(
@@ -140,10 +123,88 @@ fn startup_game(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    commands.spawn(Camera2d);
+    commands.spawn(Camera2d).despawn();
 }
 
 #[derive(Component)]
 pub struct PlayerComponent {
     player_id: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AsrState {
+    last_entity_id: u32,
+    entities: HashMap<u32, AsrEntity>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AsrEntity {
+    cardinality: i8,
+    components: HashMap<u32, AsrComponent>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AsrComponent {
+    cardinality: i8,
+    data: Vec<u8>,
+}
+
+trait DynamicComponent {}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+enum ClientMessage {
+    Action { message: ClientMessageAction },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ClientMessageAction {
+    movement: Vec2,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+enum ServerMessage {
+    State { message: ServerMessageStateDelta },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ServerMessageStateDelta {}
+
+#[repr(u8)]
+pub enum ClientChannel {
+    Action,
+}
+
+impl Into<ChannelId> for ClientChannel {
+    fn into(self) -> ChannelId {
+        self as ChannelId
+    }
+}
+
+impl ClientChannel {
+    pub fn channels_configuration() -> ChannelsConfiguration {
+        ChannelsConfiguration::from_types(vec![ChannelKind::OrderedReliable {
+            max_frame_size: DEFAULT_MAX_RELIABLE_FRAME_LEN,
+        }])
+        .unwrap()
+    }
+}
+
+#[repr(u8)]
+pub enum ServerChannel {
+    State,
+}
+
+impl Into<ChannelId> for ServerChannel {
+    fn into(self) -> ChannelId {
+        self as ChannelId
+    }
+}
+
+impl ServerChannel {
+    pub fn channels_configuration() -> ChannelsConfiguration {
+        ChannelsConfiguration::from_types(vec![ChannelKind::UnorderedReliable {
+            max_frame_size: DEFAULT_MAX_RELIABLE_FRAME_LEN,
+        }])
+        .unwrap()
+    }
 }
