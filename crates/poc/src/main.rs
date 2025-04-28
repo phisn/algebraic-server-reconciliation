@@ -77,3 +77,43 @@ fn run_server() -> Result<()> {
 
     Ok(())
 }
+
+struct Node<T> {
+    value: T,
+    next: Option<Rc<RefCell<Node<T>>>>,
+    prev: Option<Rc<RefCell<Node<T>>>>,
+}
+
+struct DLL<T> {
+    head: Option<Rc<RefCell<Node<T>>>>,
+    tail: Option<Rc<RefCell<Node<T>>>>,
+}
+
+impl<T> DLL<T> {
+    fn new() -> Self {
+        Self {
+            head: None,
+            tail: None,
+        }
+    }
+
+    fn push_front(&mut self, value: T) {
+        if let Some(head) = self.head.clone() {
+            self.head = Some(Rc::new(RefCell::new(Node {
+                value,
+                next: Some(head.clone()),
+                prev: None,
+            })));
+
+            head.borrow_mut().prev = self.head.clone();
+        } else {
+            self.head = Some(Rc::new(RefCell::new(Node {
+                value
+                next: None,
+                prev: None,
+            })));
+            self.tail = self.head.clone();
+        }
+    }
+
+}
