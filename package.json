@@ -1,0 +1,8 @@
+{
+    "name": "algebraic-server-reconciliation",
+    "private": true,
+    "workspaces": [
+      "game"
+    ]
+  }
+
