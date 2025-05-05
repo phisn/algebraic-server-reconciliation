@@ -1,3 +1,4 @@
 .DS_Store
 docs/*.pdf
 node_modules
+target/

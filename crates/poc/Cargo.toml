@@ -1,0 +1,16 @@
+[package]
+name = "poc"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.97"
+avian2d = "0.2.1"
+bevy = "0.15.3"
+bevy_defer = "0.13.3"
+bevy_quinnet = "0.16.0"
+clap = "4.5.34"
+crossterm = "0.29.0"
+rand = "0.9.0"
+serde = "1.0.219"
+tokio = "1.44.1"
