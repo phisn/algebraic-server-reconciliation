@@ -1,0 +1,51 @@
+{
+    "name": "proof-of-concept",
+    "private": true,
+    "version": "0.0.0",
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "build": "tsc -b && vite build",
+        "preview": "vite preview"
+    },
+    "dependencies": {
+        "@dimforge/rapier2d": "^0.15.0",
+        "@react-three/fiber": "^9.1.0",
+        "@tailwindcss/vite": "^4.1.2",
+        "deep-copy-ts": "^0.5.4",
+        "koota": "^0.3.0",
+        "mutative": "^1.1.0",
+        "prettier-plugin-organize-imports": "^4.1.0",
+        "prettier-plugin-tailwindcss": "^0.6.11",
+        "react": "^19.0.0",
+        "react-dom": "^19.0.0",
+        "tailwindcss": "^4.1.2",
+        "three": "^0.175.0"
+    },
+    "devDependencies": {
+        "@eslint/js": "^9.21.0",
+        "@types/react": "^19.0.10",
+        "@types/react-dom": "^19.0.4",
+        "@types/three": "^0.174.0",
+        "@vitejs/plugin-react-swc": "^3.8.0",
+        "eslint": "^9.21.0",
+        "eslint-plugin-react-hooks": "^5.1.0",
+        "eslint-plugin-react-refresh": "^0.4.19",
+        "globals": "^15.15.0",
+        "prettier": "^3.5.3",
+        "typescript": "~5.7.2",
+        "typescript-eslint": "^8.24.1",
+        "vite": "^6.2.0"
+    },
+    "prettier": {
+        "printWidth": 100,
+        "tabWidth": 4,
+        "semi": false,
+        "arrowParens": "avoid",
+        "endOfLine": "lf",
+        "plugins": [
+            "prettier-plugin-organize-imports",
+            "prettier-plugin-tailwindcss"
+        ]
+    }
+}

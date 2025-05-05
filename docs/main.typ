@@ -1,11 +1,69 @@
 #import "@preview/lemmify:0.1.8": *
-#import "@preview/rubber-article:0.3.1": *
 
-#show: article.with(
-  show-header: true,
-  header-titel: "Algebraic Server Reconciliation",
-  eq-numbering: "(1.1)",
-  eq-chapterwise: true,
+#import "@local/athena-tu-darmstadt-thesis:0.1.0": *
+
+
+// setup the template
+#show: tudapub.with(
+  title: [
+    Algebraic Server Reconciliation for Online Games
+  ],
+  author: "Philipp Hinz",
+
+  title_german: "Algebraische serverseitige Zustandskorrektur für Online-Spiele",
+
+  // to deactivate the sub logo text set logo_sub_content_text: none,
+  logo_sub_content_text: none,
+
+  logo_tuda: image("logos/tuda_logo.svg"),
+  accentcolor: "9c",
+ 
+  abstract: [
+    This is a template to write your thesis with the corporate design of #link("https://www.tu-darmstadt.de/")[TU Darmstadt].
+  ],
+
+  bib: bibliography("refs.bib", full: true),
+
+  // Set the margins of the content pages.
+  // The title page is not affected by this.
+  // Some example margins are defined in 'common/props.typ':
+  //  - tud_page_margin_small  // same as title page margin
+  //  - tud_page_margin_big
+  // E.g.   margin: tud_page_margin_small,
+  // E.g.   margin: (
+  //   top: 30mm,
+  //   left: 31.5mm,
+  //   right: 31.5mm,
+  //   bottom: 56mm
+  // ),
+  margin: tud_page_margin_big,
+
+
+  // outline_table_of_contents_style: "adapted",
+  // reduce_heading_space_when_first_on_page: false
+  // figure_numbering_per_chapter: false
+
+  // Which pages to insert
+  // Pages can be disabled individually.
+  show_pages: (
+    title_page: true,
+    outline_table_of_contents: true,
+    thesis_statement_pursuant: true
+  ),
+
+  // Set this to true to add the page for the translation of the statement of pursuant
+  thesis_statement_pursuant_include_english_translation: false,
+
+  // pages after outline that will not be included in the outline
+  additional_pages_after_outline_table_of_contents: [
+    == List of Symbols
+    - $t$ - time
+    == List of Figures
+  ],
+
+  reviewer_names: (
+    "Dr.-Ing. Guido Rößling",
+  )
 )
 
 #set math.equation(numbering: none)
@@ -14,14 +72,12 @@
   definition, theorem, rules: thm-rules
 ) = default-theorems("thm-group", lang: "en", thm-numbering: "left")
 
-#maketitle(
-  title: "Master Thesis \n Algebraic Server Reconciliation for Online Games",
-  authors: ("Philipp Hinz \n Supervised by Dr.-Ing. Guido Rößling", ),
-  date: datetime.today().display("[day]. [month repr:long] [year]"),
-)
 
-#pagebreak()
-= Modelling
+= Introduction 
+
+= Related work
+
+= Formal Model
 
 We define a game world using a game state $S$, an initial game state $s_0 in S$ and a progression function $f: (S, I) -> S$ as $G = (S, s_0, f)$ where $I$ is some external input. A game state at time $t$ can be progressed using some input $i_t in I$ to time $t + 1$ using the progression function: $s_(t + 1) = f(s_t, i_t)$. We can combine the input and state to a frame $r_t = (s_t, i_t)$.
 
@@ -90,3 +146,11 @@ $
 $
 
 Therefore we can reach any prediction $p^c_(t + d,t^r_c)$ over time. We call this reconciliation method algebraic server reconciliation.
+
+= Experiments
+
+= Discussion
+
+= Conclusion
+
+= Future work
