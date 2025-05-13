@@ -5,12 +5,16 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.97"
-avian2d = "0.2.1"
-bevy = "0.15.3"
-bevy_defer = "0.13.3"
-bevy_quinnet = "0.16.0"
+avian2d = { git = "https://github.com/Jondolf/avian.git" }
+bevy = { version = "0.16", features = ["serialize"] }
+bevy_defer = "0.14.0"
+bevy_quinnet = "0.17.0"
+bevy_replicon = "0.33.0"
+bevy_replicon_quinnet = "0.12.0"
+bevy_transform_interpolation = { git = "https://github.com/Jondolf/bevy_transform_interpolation.git" }
 clap = "4.5.34"
 crossterm = "0.29.0"
+postcard = { version = "1.1.1", features = ["use-std"] }
 rand = "0.9.0"
 serde = "1.0.219"
 tokio = "1.44.1"
