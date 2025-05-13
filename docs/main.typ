@@ -80,6 +80,8 @@
 
 = Network model <theory>
 
+To rigorously discuss and analyze networking techniques for online games, particularly those involving state synchronization and reconciliation, it is essential to first establish a clear and formal understanding of the underlying concepts. This chapter lays the theoretical groundwork by defining fundamental components of a game from a networking perspective, such as game state, state progression, and the roles of clients and the server. Building upon these definitions, we will then explore several established network models, from naive approaches to more sophisticated techniques like client-side prediction and server reconciliation. This exploration will highlight the challenges inherent in achieving responsive and consistent gameplay in a networked environment. Finally, this chapter will introduce the core theoretical concepts behind delta states and culminate in the formal definition of algebraic server reconciliation, the novel method investigated in this thesis.
+
 == Overview
 We define a game world using a game state $S$, an initial game state $s_0 in S$ and a progression function $f: (S, I) -> S$ as $G = (S, s_0, f)$ where $I$ is some external input. A game state at time $t$ can be progressed using some input $i_t in I$ to time $t + 1$ using the progression function: $s_(t + 1) = f(s_t, i_t)$. We can combine the input and state to a frame $r_t = (s_t, i_t)$.
 
@@ -109,7 +111,7 @@ We are bound in the time a player is able to react to other players' inputs. One
 
 When the interval rate is fixed to a time $delta < t^e_c + t^s_(c prime)$, which is usually the case, a client $c$ will already have made an input $i^c_(t + 1)$ without there being a possibility of receiving input $i^(c prime)_t$ from client $c prime$. Therefore according to our definition, games with a fixed interval cannot be fair.
 
-=== Client side prediction
+=== Client side prediction <client-side-prediction>
 
 In the (fair) naive model, a client will only be able to apply their input $i^c_t$ to a state $s_(t - t^r_c)$. Therefore a client sees responses to their own input with a latency of $t^r_c$.
 
@@ -123,7 +125,7 @@ One major problem with client-side reconciliation is that finding a good partial
 
 One alternative approach would be to not compare the current state for divergence, but memorize past states. Given an interval time of $t^i$, the client needs to memorize $n_"predict" = t^r_c slash t^i$ game states, which can be partial states. This solution unfortunately doesn't solve the snapping when divergences are found, since it forces the client from a predicted state in time $t + t^r_c$ to $t + 1$.
 
-=== Server reconciliation
+=== Server reconciliation <theory-rollback>
 
 When merging an update $s_(t + 1)$ with a diverged predicted state $p^c_(t, t^r_c)$, we previously overrode the state with state $s_(t + 1)$. This skip from $t + t^r_c$ to $t + 1$ causes snapping. What we can do alternatively is to memorize inputs $i^c_k: t + 1 <= k <= t + t^r_c$. We replace our state with $s_(t + 1)$ and then apply all memorized inputs to get an alternative predicted state $p^c_(t, t^r_c) prime$ which would have been reached if the divergence didn't happen. Since we now have a state in time $t + t^r_c$, we do not have snapping behavior. This method is called rollback server reconciliation and is one of the most fundamental techniques in modern games.
 
@@ -131,12 +133,12 @@ Server reconciliation is the process of combining a past received state $s_t$ wi
 
 Unfortunately, since we have to rollback to the last received state, we must memorize all predictions we made. In the worst case, we memorize the whole $s_t$. When receiving $s_t$, we apply the prediction function $n_"predict"$ times. Therefore an input $i^c_t$ is predicted for the first time at $t - n_"predict"$ and the last time at $t$. So each input is processed by the client $n_"predict"$ times. This means that especially clients with longer ping have to do more processing, increasing with a smaller tick interval.
 
-=== Delta State
+=== Delta State <delta-state>
 The host is sending the whole state $s_t$ each tick. This means we will send redundant data as the state rarely changes completely. We define delta states $Delta s_t in Delta S$ as changes in state which can be applied using a delta application function $f^A: S -> Delta S -> S$. We define an alternative progression function $f^Delta: I -> S -> Delta S$ returning a delta instead of the whole state and write $f^Delta (i_t, s_t) = Delta s_t$. We can derive the original progression function as $f(i_t, s_t) = f^A (s_t, f^Delta (i_t, s_t))$, therefore all our previous results hold true when using delta states. The other way around we can convert any normal state to delta state given progression function $f$ and state $S$ by defining $f^A = f$, $Delta S = S$ and $f^A (dot, s_t) = s_t$. This means, that in practice we can always implement delta state and use normal state on top.
 
 The host will each tick send $Delta s_(t + 1)$ to the clients. In the (fair) naive or lockstep model, a client has currently loaded a state $s_t$ and can simply use the delta application function to progress the state. Using rollback reconciliation, the client can use the delta application function after the rollback to $s_t$ and predict the actual state afterwards. If delta state can be used with the partial application reconciliation depends on the state and cannot be generalized because it is not possible to get back to a state $s_t$.
 
-== Algebraic server reconciliation
+== Algebraic server reconciliation <algebraic-reconciliation>
 
 === Definition
 
@@ -284,9 +286,63 @@ The dataflow can be summarized by the following steps, which correspond to the n
 
 Similarly to the server-side dataflow, this entire process is repeated each game tick while the game is running.
 
-=== Rollback reconciliation <design-rollback> // Suggestion: Add a #label("rollback_reconciliation_section_id") here
+#pagebreak()
 
-=== Algebraic reconciliation <design-algebraic> // Suggestion: Add a #label("algebraic_reconciliation_section_id") here
+=== Rollback reconciliation <design-rollback>
+
+When an incoming authoritative state change (delta) from the server affects the predicted part of the client's game world, reconciliation is necessary to correct any mispredictions. The most common reconciliation method currently used in games is rollback reconciliation, which was introduced conceptually in #ref(<theory-rollback>). The core idea behind rollback reconciliation is to revert the client's game state to the last known authoritative state before the misprediction occurred, apply the incoming server correction, and then re-simulate all local player inputs that have occurred since that authoritative state.
+
+The interactions for this process within our client-side architecture are illustrated below.
+
+#pad(
+  bottom: 20pt,
+  figure(
+    pad(
+      top: 20pt,
+      bottom: 20pt,
+      image("diagrams/design-detail-rollback.svg"),
+    ),
+    caption: [
+      Dataflow for rollback reconciliation on the client. Incoming changes trigger a rollback, replay of memorized inputs via the prediction module, and update of the predicted world.
+    ],
+  ),
+)
+
+The primary challenge in implementing rollback reconciliation lies in efficiently reverting the game state. When working with delta states (as discussed in #ref(<delta-state>)), two common approaches are:
+
++ *State Cloning*: Maintain at least two distinct copies (or snapshots) of the predicted part of the world. One copy represents the state before the latest batch of local predictions is applied. When an incoming server change necessitates a rollback, the current predicted world (with the mispredictions) is discarded, and the client reverts to the previous clean snapshot. The server change is applied to this snapshot, which then becomes the new baseline for re-applying subsequent local inputs.
+
++ *Storing Reverse Deltas*: For each local prediction applied to the predicted part of the world, store a corresponding "reverse delta" or "undo operation." To roll back, these reverse deltas are applied in reverse chronological order to the current predicted state, effectively reverting it step-by-step to the desired past authoritative state. Once rolled back, the server's delta is applied, and then local inputs are re-simulated.
+
+After successfully rolling back the state to the point of divergence, the reconciliation module needs to re-apply the local inputs that the player has generated since that point. To facilitate this, the prediction module, as mentioned in the client-side dataflow (see step 4), memorizes these applied inputs in a buffer. The rollback reconciliation process accesses this buffer to retrieve the sequence of inputs that must be re-played by the prediction logic against the corrected state.
+
+#pagebreak()
+
+=== Algebraic reconciliation <design-algebraic>
+
+A significant drawback of rollback reconciliation, as highlighted in #ref(<theory-rollback>), is the computational cost of re-simulating predictions. Each time an authoritative server update corrects the client's predicted state, the client might need to re-process multiple ticks of input. This re-simulation effort can increase with the client's network latency, potentially affecting performance, especially in games with many frequently predicted game objects or for players with higher ping times.
+
+The dataflow for applying algebraic reconciliation within our client architecture is depicted in the figure below.
+
+#pad(
+  bottom: 20pt,
+  figure(
+    pad(top: 20pt, bottom: 20pt, image("diagrams/design-detail-algebraic.svg")),
+    caption: [
+      Dataflow for algebraic reconciliation on the client. Incoming server deltas are used by the reconciliation module to calculate a direct correction delta.
+    ],
+  ),
+)
+
+Our proposed algebraic server reconciliation method, whose theoretical basis was introduced in #ref(<algebraic-reconciliation>), offers an alternative designed to avoid this repetitive prediction overhead. This method relies on representing game state changes as "delta states." For algebraic reconciliation to work effectively, these delta states need to possess certain well-defined mathematical properties, specifically those of an Abelian group, as detailed in our theory section. In essence, this means the deltas can be reliably combined, effectively undone, and the sequence of their combination does not alter the final result, much like arithmetic operations on numbers. When these conditions are met, corrections to the client's predicted state can often be calculated and applied as a single, direct adjustment, rather than requiring a full re-simulation of past inputs.
+
+The implementation of algebraic reconciliation within the client-side networking layer primarily modifies how the reconciliation module processes incoming server changes and updates the client's predicted part of the world. The client's prediction logic, when handling local player inputs, conceptualizes its effects as a series of "predicted deltas." The prediction module tracks the cumulative outcome of these locally generated deltas, effectively maintaining the client's speculative view of the game state built upon the last acknowledged server state.
+
+Concurrently, the client receives authoritative state updates from the server, also in the form of deltas. When such an authoritative server delta arrives, the reconciliation module's task is to compute a "correction delta." This is achieved by comparing the server's authoritative delta for a given time period with the net predicted delta that the client had generated for that same period. The discrepancy between these two deltas isolates the misprediction. This "difference," which is itself a delta, forms the required correction. The ability to reliably calculate this correction delta hinges on the algebraic (Abelian group) properties of the delta states, which allow for a meaningful "subtraction" or "inversion" of the predicted deltas relative to the server's authoritative ones, as outlined in #ref(<algebraic-reconciliation>).
+
+Once this single correction delta is determined, it is applied directly to the client's current predicted part of the world. This direct application adjusts the client's state to more accurately reflect the server's view, effectively integrating the server's information without the need to rewind and individually re-process past local inputs. This avoidance of extensive input re-simulation is a key advantage over the rollback method. While the re-simulation of old inputs is bypassed, the client naturally continues to apply new local inputs via the prediction logic to its newly corrected state to maintain immediate responsiveness. It's important to note that for this process to function, the prediction module must maintain a record of the predicted deltas it has generated, as this information is essential for calculating the correction delta. This is distinct from rollback reconciliation's requirement to store the raw inputs themselves for potential re-simulation.
+
+By directly adjusting the predicted state through these well-behaved delta manipulations, the algebraic approach can offer a more computationally efficient reconciliation process. This is particularly beneficial when the game state can be effectively represented by deltas that adhere to the required algebraic properties, as this allows for the direct calculation and application of corrections.
 
 = Experiments
 
