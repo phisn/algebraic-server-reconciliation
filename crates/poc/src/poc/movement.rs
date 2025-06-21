@@ -1,9 +1,12 @@
 use avian2d::{math::*, prelude::*};
 use bevy::{ecs::query::Has, prelude::*};
-use bevy_replicon::prelude::{
-    server_running, Channel, ClientEventAppExt, ClientTriggerAppExt, ServerEventAppExt,
+use bevy_replicon::{
+    prelude::{server_running, Channel, ClientEventAppExt, ClientTriggerAppExt, ServerEventAppExt},
+    shared::replicon_tick::RepliconTick,
 };
 use serde::{Deserialize, Serialize};
+
+use super::Simulate;
 
 pub struct MovementPlugin;
 
@@ -11,10 +14,8 @@ impl Plugin for MovementPlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<MovementInput>()
             .add_client_event::<MovementInput>(Channel::Unreliable)
-            .add_systems(
-                FixedUpdate,
-                (update_grounded, movement, apply_movement_damping).run_if(server_running),
-            );
+            .add_systems(Simulate, (movement, apply_movement_damping))
+            .add_systems(Simulate, update_grounded.after(PhysicsSet::Sync));
     }
 }
 
@@ -22,6 +23,7 @@ impl Plugin for MovementPlugin {
 pub struct MovementInput {
     pub direction: f32,
     pub jump: bool,
+    pub tick: RepliconTick,
 }
 
 #[derive(Component, Default)]
@@ -30,9 +32,9 @@ pub struct Movement {
     pub uses: u32,
 }
 
-#[derive(Component)]
+#[derive(Component, Serialize, Deserialize, Clone)]
 #[component(storage = "SparseSet")]
-pub struct Grounded;
+pub struct Grounded(bool);
 
 #[derive(Component)]
 pub struct MovementConfig {
@@ -40,14 +42,17 @@ pub struct MovementConfig {
     pub damping: f32,
     pub jump_impulse: f32,
     pub max_slope_angle: Option<f32>,
+    pub max_velocity: f32,
 }
 
 #[derive(Bundle)]
 pub struct MovementController {
     body: RigidBody,
     collider: Collider,
+    friction: Friction,
     ground_caster: ShapeCaster,
     locked_axes: LockedAxes,
+    grounded: Grounded,
 
     movement_config: MovementConfig,
     movement: Movement,
@@ -61,9 +66,15 @@ impl MovementController {
         Self {
             body: RigidBody::Dynamic,
             collider,
+            friction: Friction {
+                combine_rule: avian2d::prelude::CoefficientCombine::Average,
+                dynamic_coefficient: 0.0,
+                static_coefficient: 0.0,
+            },
             ground_caster: ShapeCaster::new(caster_shape, Vector::ZERO, 0.0, Dir2::NEG_Y)
                 .with_max_distance(10.0),
             locked_axes: LockedAxes::ROTATION_LOCKED,
+            grounded: Grounded(false),
 
             movement_config,
             movement: Movement::default(),
@@ -72,10 +83,18 @@ impl MovementController {
 }
 
 fn update_grounded(
-    mut commands: Commands,
-    mut query: Query<(Entity, &ShapeHits, &Rotation, &MovementConfig), With<Movement>>,
+    mut query: Query<
+        (
+            Entity,
+            &ShapeHits,
+            &Rotation,
+            &MovementConfig,
+            &mut Grounded,
+        ),
+        With<Movement>,
+    >,
 ) {
-    for (entity, hits, rotation, movement_config) in &mut query {
+    for (entity, hits, rotation, movement_config, mut grounded) in &mut query {
         // The character is grounded if the shape caster has a hit with a normal
         // that isn't too steep.
         let is_grounded = hits.iter().any(|hit| {
@@ -86,11 +105,7 @@ fn update_grounded(
             }
         });
 
-        if is_grounded {
-            commands.entity(entity).insert(Grounded);
-        } else {
-            commands.entity(entity).remove::<Grounded>();
-        }
+        grounded.0 = is_grounded;
     }
 }
 
@@ -98,28 +113,38 @@ fn movement(
     time: Res<Time>,
     mut controllers: Query<(
         &mut Movement,
+        &Transform,
         &MovementConfig,
         &mut LinearVelocity,
-        Has<Grounded>,
+        &Grounded,
     )>,
 ) {
     let delta_time = time.delta_secs_f64().adjust_precision();
 
-    for (mut movement, movement_config, mut linear_velocity, is_grounded) in &mut controllers {
+    for (mut movement, transform, movement_config, mut linear_velocity, grounded) in
+        &mut controllers
+    {
         let Some(input) = &movement.input else {
             continue;
         };
 
-        println!("Movement: {:?}", linear_velocity);
+        println!(
+            "Step jump={} y={} yt={} dt={} floor={}",
+            input.jump, transform.translation.y, linear_velocity.y, delta_time, grounded.0
+        );
 
-        let movement_factor = if is_grounded { 1.0 } else { 0.2 };
+        let movement_factor = if grounded.0 { 1.0 } else { 0.5 };
 
         linear_velocity.x += input.direction.clamp(-1.0, 1.0)
             * movement_factor
             * movement_config.acceleration
             * delta_time;
 
-        if is_grounded && input.jump {
+        linear_velocity.x = linear_velocity
+            .x
+            .clamp(-movement_config.max_velocity, movement_config.max_velocity);
+
+        if grounded.0 && input.jump {
             linear_velocity.y = movement_config.jump_impulse;
         }
 
@@ -134,8 +159,10 @@ fn movement(
 /// Slows down movement in the X direction.
 fn apply_movement_damping(mut query: Query<(Has<Grounded>, &MovementConfig, &mut LinearVelocity)>) {
     for (is_grounded, movement_config, mut linear_velocity) in &mut query {
-        let damping = if is_grounded { 0.98 } else { 0.96 };
+        linear_velocity.x *= 0.995;
 
-        linear_velocity.x *= damping;
+        if is_grounded {
+            linear_velocity.x *= movement_config.damping;
+        };
     }
 }

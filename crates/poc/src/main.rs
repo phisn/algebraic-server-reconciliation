@@ -38,7 +38,14 @@ fn main() -> anyhow::Result<()> {
 
         let filename = env::current_exe()?;
 
-        let mut client = Command::new(&filename)
+        /*
+               let mut client1 = Command::new(&filename)
+                   .arg("client")
+                   .arg("automatic")
+                   .stdout(stdout())
+                   .spawn()?;
+        */
+        let mut client2 = Command::new(&filename)
             .arg("client")
             .stdout(stdout())
             .spawn()?;
@@ -64,8 +71,13 @@ fn main() -> anyhow::Result<()> {
                     _ => {}
                 }
             } else {
-                if client.try_wait().map(|x| x.is_some()).unwrap_or(true) {
-                    println!("Closing: Client dead");
+                /*if client1.try_wait().map(|x| x.is_some()).unwrap_or(true) {
+                    println!("Closing: Client1 dead");
+                    break;
+                }*/
+
+                if client2.try_wait().map(|x| x.is_some()).unwrap_or(true) {
+                    println!("Closing: Client2 dead");
                     break;
                 }
 
@@ -76,8 +88,9 @@ fn main() -> anyhow::Result<()> {
             }
         }
 
-        let _ = client.kill();
         let _ = server.kill();
+        //let _ = client1.kill();
+        let _ = client2.kill();
 
         Ok(())
     }
@@ -94,7 +107,12 @@ fn run_client() -> Result<()> {
         ..default()
     }))
     .add_plugins(PocPlugin {
-        typ: poc::PocType::Client,
+        typ: poc::PocType::Client(
+            env::args()
+                .nth(2)
+                .map(|x| x == "automatic")
+                .unwrap_or(false),
+        ),
     })
     .run();
 
