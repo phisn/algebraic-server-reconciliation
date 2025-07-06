@@ -1,4 +1,5 @@
 import "@react-three/fiber"
+import deepcopy from "deepcopy"
 import { Bodies, Body, Composite, Engine, Query, Runner } from "matter-js"
 import { JSX, useEffect, useRef, useSyncExternalStore } from "react"
 import { ActionSymbol, Game, GenericAction, GenericCompoundAction, StateSymbol } from "./game"
@@ -10,7 +11,7 @@ export interface Action {
     jump?: boolean
 }
 
-interface State {
+export interface State {
     type: typeof StateSymbol
 
     players: Record<string, Player>
@@ -38,62 +39,64 @@ export function SideScrollerRenderer(props: { onAction: (action: Action) => void
     const state = props.state
     const inputRef = useRef<Action>({ type: ActionSymbol })
 
-    const onAction = props.onAction
+    const actionRef = useRef(props.onAction)
+    actionRef.current = props.onAction
 
     useEffect(() => {
-        if (onAction) {
-            let left = false
-            let right = false
+        console.log("effect")
+        let left = false
+        let right = false
 
-            const handleKeyDown = (event: KeyboardEvent) => {
-                if (event.key === "ArrowLeft") {
-                    left = true
-                    inputRef.current.move = right ? undefined : "left"
+        const handleKeyDown = (event: KeyboardEvent) => {
+            console.log(event.key, "kd", left, right)
+            if (event.key === "ArrowLeft") {
+                left = true
+                inputRef.current.move = right ? undefined : "left"
 
-                    onAction(inputRef.current)
-                }
-                if (event.key === "ArrowRight") {
-                    right = true
-                    inputRef.current.move = left ? undefined : "right"
+                actionRef.current(inputRef.current)
+            }
+            if (event.key === "ArrowRight") {
+                right = true
+                inputRef.current.move = left ? undefined : "right"
 
-                    onAction(inputRef.current)
-                }
-                if (event.key === "ArrowUp") {
-                    inputRef.current.jump = true
-                    console.log("Jumping press")
-                    onAction(inputRef.current)
-                }
+                actionRef.current(inputRef.current)
+            }
+            if (event.key === "ArrowUp") {
+                inputRef.current.jump = true
+                actionRef.current(inputRef.current)
             }
 
-            const handleKeyUp = (event: KeyboardEvent) => {
-                if (event.key === "ArrowLeft") {
-                    left = false
-                    inputRef.current.move = right ? "right" : undefined
+            console.log("kd_", left, right)
+        }
 
-                    onAction(inputRef.current)
-                }
-                if (event.key === "ArrowRight") {
-                    right = false
-                    inputRef.current.move = left ? "left" : undefined
+        const handleKeyUp = (event: KeyboardEvent) => {
+            console.log("keyup", event.key)
+            if (event.key === "ArrowLeft") {
+                left = false
+                inputRef.current.move = right ? "right" : undefined
 
-                    onAction(inputRef.current)
-                }
-                if (event.key === "ArrowUp") {
-                    inputRef.current.jump = undefined
-                    console.log("Jumping release")
-                    onAction(inputRef.current)
-                }
+                actionRef.current(inputRef.current)
             }
+            if (event.key === "ArrowRight") {
+                right = false
+                inputRef.current.move = left ? "left" : undefined
 
-            window.addEventListener("keydown", handleKeyDown)
-            window.addEventListener("keyup", handleKeyUp)
-
-            return () => {
-                window.removeEventListener("keydown", handleKeyDown)
-                window.removeEventListener("keyup", handleKeyUp)
+                actionRef.current(inputRef.current)
+            }
+            if (event.key === "ArrowUp") {
+                inputRef.current.jump = undefined
+                actionRef.current(inputRef.current)
             }
         }
-    }, [onAction, inputRef])
+
+        window.addEventListener("keydown", handleKeyDown)
+        window.addEventListener("keyup", handleKeyUp)
+
+        return () => {
+            window.removeEventListener("keydown", handleKeyDown)
+            window.removeEventListener("keyup", handleKeyUp)
+        }
+    }, [actionRef, inputRef])
 
     return (
         <>
@@ -122,7 +125,7 @@ export class SideScroller implements Game {
     private _subscribers: Set<() => void>
     private _tick: number
 
-    public constructor() {
+    public constructor(private _playerName: boolean) {
         this._bodies = {}
         this._engine = Engine.create({
             gravity: { x: 0, y: -1 },
@@ -161,7 +164,7 @@ export class SideScroller implements Game {
     }
 
     public getInput(): GenericAction {
-        return this._input
+        return deepcopy(this._input)
     }
 
     public render(): JSX.Element {
@@ -182,11 +185,12 @@ export class SideScroller implements Game {
     }
 
     public getState(): State {
-        return this._state
+        return deepcopy(this._state)
     }
 
     public setState(state: State) {
-        this._state = state as State
+        this._state = deepcopy(state as State)
+        this.handleSyncToEngine()
 
         this._tick++
         this.notifySubscribers()
@@ -203,6 +207,14 @@ export class SideScroller implements Game {
     }
 
     public predict(clientId: string, action: GenericAction) {
+        for (const playerId in this._state.players) {
+            const body = this._bodies[playerId]
+
+            if (body) {
+                Body.setStatic(body, playerId !== clientId)
+            }
+        }
+
         this.handleAction(clientId, action)
         this.handleSyncToEngine()
         Runner.tick(this._runner, this._engine, 1000 / 60)
@@ -210,6 +222,14 @@ export class SideScroller implements Game {
 
         this._tick++
         this.notifySubscribers()
+
+        for (const playerId in this._state.players) {
+            const body = this._bodies[playerId]
+
+            if (body) {
+                Body.setStatic(body, false)
+            }
+        }
     }
 
     private handleCompoundAction(action: GenericCompoundAction) {
@@ -287,29 +307,22 @@ export class SideScroller implements Game {
     private checkPlayerOnGround(playerId: string): boolean {
         const body = this._bodies[playerId]
 
-        if (!body) return false
+        if (!body) {
+            return false
+        }
 
-        // Calculate ray start and end points
-        // Start from the bottom center of the player
         const rayStart = {
             x: body.bounds.max.x,
-            y: body.bounds.min.y - 1, // Just below the player
+            y: body.bounds.min.y - 1,
         }
 
-        // End point is a short distance below the player
         const rayEnd = {
             x: body.bounds.min.x,
-            y: body.bounds.min.y - 1, // 10 pixels below
+            y: body.bounds.min.y - 1,
         }
 
-        console.log(body.position, body.bounds)
-
         const bodies = this._engine.world.bodies.filter(b => b !== body)
-
-        // Cast ray and check for intersections
         const collisions = Query.ray(bodies, rayStart, rayEnd)
-
-        console.log(collisions)
 
         return collisions.length > 0
     }
