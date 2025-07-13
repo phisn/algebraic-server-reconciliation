@@ -2,8 +2,8 @@ import { OrthographicCamera } from "@react-three/drei"
 import { Canvas } from "@react-three/fiber"
 import deepcopy from "deepcopy"
 import { JSX, useEffect, useState } from "react"
-import { Game } from "./game/game"
-import { SideScroller } from "./game/SideScroller"
+import { FocusContext, Game } from "./game/game"
+import { TopDown } from "./game/TopDown"
 import {
     ClientStrategy,
     GenericMessage,
@@ -11,7 +11,7 @@ import {
     ServerStrategy,
     Socket,
 } from "./networking/networking"
-import { RollbackNetworking } from "./networking/strategy-rollback"
+import { AlgebraicNetworking } from "./networking/strategy-algebraic"
 
 export interface MemorySocketModifiers {
     // Delay in number of packets
@@ -103,7 +103,10 @@ export function Sandbox() {
     const [scenario, setScenario] = useState<Scenario | null>(null)
 
     useEffect(() => {
-        const scenario = new Scenario(() => new SideScroller(), new RollbackNetworking())
+        const scenario = new Scenario(
+            () => new TopDown({ static_entities_in_prediction: true }),
+            new AlgebraicNetworking(),
+        )
         setScenario(scenario)
 
         const interval = setInterval(() => {
@@ -140,17 +143,26 @@ export function Sandbox() {
 }
 
 function ClientViewport(props: { children: JSX.Element }) {
+    const [focus, setFocus] = useState(false)
+
     return (
         <div className="relative w-[30rem]">
             <div className="absolute right-0 top-0 z-50 p-4">
-                <InputViewer />
+                <InputViewer focused={focus} />
             </div>
-            <Viewport className="flex aspect-[1/1] flex-grow">
-                <Canvas orthographic>
-                    <OrthographicCamera makeDefault far={1000} near={-1000} scale={1.2} />
-                    {props.children}
-                </Canvas>
-            </Viewport>
+            <FocusContext.Provider value={focus}>
+                <Viewport className="flex aspect-[1/1] flex-grow">
+                    <Canvas
+                        onFocus={() => setFocus(true)}
+                        onBlur={() => setFocus(false)}
+                        tabIndex={0}
+                        orthographic
+                    >
+                        <OrthographicCamera makeDefault far={1000} near={-1000} scale={1.2} />
+                        {props.children}
+                    </Canvas>
+                </Viewport>
+            </FocusContext.Provider>
         </div>
     )
 }
@@ -176,12 +188,17 @@ function Viewport(props: { children: JSX.Element; className?: string }) {
     )
 }
 
-function InputViewer() {
+function InputViewer(props: { focused: boolean }) {
     const [left, setLeft] = useState(false)
     const [up, setUp] = useState(false)
     const [right, setRight] = useState(false)
+    const [down, setDown] = useState(false)
 
     useEffect(() => {
+        if (props.focused === false) {
+            return
+        }
+
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.key === "ArrowLeft") {
                 setLeft(true)
@@ -193,6 +210,10 @@ function InputViewer() {
 
             if (event.key === "ArrowUp") {
                 setUp(true)
+            }
+
+            if (event.key === "ArrowDown") {
+                setDown(true)
             }
         }
 
@@ -208,6 +229,10 @@ function InputViewer() {
             if (event.key === "ArrowUp") {
                 setUp(false)
             }
+
+            if (event.key === "ArrowDown") {
+                setDown(false)
+            }
         }
 
         window.addEventListener("keydown", handleKeyDown)
@@ -216,16 +241,22 @@ function InputViewer() {
         return () => {
             window.removeEventListener("keydown", handleKeyDown)
             window.removeEventListener("keyup", handleKeyUp)
+
+            setLeft(false)
+            setRight(false)
+            setUp(false)
+            setDown(false)
         }
-    }, [])
+    }, [props.focused])
 
     return (
-        <div className="space-y-2">
+        <div className={"space-y-2 " + (props.focused ? "" : "opacity-50")}>
             <div className="flex w-full justify-center">
                 <div className={"kbd kbd-xl " + (up ? "bg-red-400" : "")}>▲</div>
             </div>
-            <div className="space-x-11">
+            <div className="space-x-2">
                 <kbd className={"kbd kbd-xl " + (left ? "bg-red-400" : "")}>◀︎</kbd>
+                <kbd className={"kbd kbd-xl " + (down ? "bg-red-400" : "")}>▼</kbd>
                 <kbd className={"kbd kbd-xl " + (right ? "bg-red-400" : "")}>▶︎</kbd>
             </div>
         </div>

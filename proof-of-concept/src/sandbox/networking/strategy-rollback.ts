@@ -14,6 +14,7 @@ interface ServerMessage extends GenericMessage {
     variant: "set"
 
     clientTick: number
+    action: GenericCompoundAction
     state: GenericState
 }
 
@@ -82,6 +83,7 @@ export class RollbackServerStrategy implements ServerStrategy {
                 variant: "set",
 
                 clientTick: this._clientTicks.get(socket.id())!,
+                action: actions,
                 state,
             }
 
@@ -91,7 +93,7 @@ export class RollbackServerStrategy implements ServerStrategy {
 }
 
 export class RollbackClientStrategy implements ClientStrategy {
-    private _actions: [number, GenericAction][]
+    private _actions: [number, GenericCompoundAction][]
     private _tick: number
 
     constructor(
@@ -121,6 +123,8 @@ export class RollbackClientStrategy implements ClientStrategy {
         this._socket.send(message)
 
         const serverMessage = this._socket.receiveLatest() as ServerMessage | undefined
+        const newAction: GenericCompoundAction = { actions: {} }
+
         if (serverMessage) {
             const removeUntil = this._actions.findIndex(([x]) => x <= serverMessage.clientTick)
             this._actions.splice(0, removeUntil + 1)
@@ -128,11 +132,15 @@ export class RollbackClientStrategy implements ClientStrategy {
             this._game.setState(serverMessage.state)
 
             for (const [, action] of this._actions) {
-                this._game.predict(this._socket.id(), action)
+                this._game.predict(action)
             }
+
+            newAction.actions = serverMessage.action.actions
         }
 
-        this._game.predict(this._socket.id(), this._game.getInput())
-        this._actions.push([this._tick, this._game.getInput()])
+        newAction.actions[this._socket.id()] = this._game.getInput()
+
+        this._game.predict(newAction)
+        this._actions.push([this._tick, newAction])
     }
 }

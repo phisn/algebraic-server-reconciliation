@@ -1,6 +1,6 @@
 import "@react-three/fiber"
 import deepcopy from "deepcopy"
-import { Bodies, Body, Composite, Engine, Query, Runner } from "matter-js"
+import { Bodies, Body, Composite, Engine, Runner } from "matter-js"
 import { JSX, useContext, useEffect, useRef, useSyncExternalStore } from "react"
 import {
     AbelianGroup,
@@ -15,35 +15,32 @@ import {
 export interface Action {
     type: typeof ActionSymbol
 
-    move?: "left" | "right"
-    jump?: boolean
+    move?: "left" | "right" | "up" | "down"
 }
 
 export interface State {
     type: typeof StateSymbol
 
     players: Record<string, Player>
-    platforms: Record<string, Platform>
+    walls: Record<string, Wall>
 }
 
 export interface Player {
-    onGround: boolean
     x: number
     y: number
     vx: number
     vy: number
-    width: number
-    height: number
+    radius: number
 }
 
-export interface Platform {
+export interface Wall {
     x: number
     y: number
     width: number
     height: number
 }
 
-export function SideScrollerRenderer(props: { onAction: (action: Action) => void; state: State }) {
+export function TopDownRenderer(props: { onAction: (action: Action) => void; state: State }) {
     const state = props.state
     const inputRef = useRef<Action>({ type: ActionSymbol })
 
@@ -59,45 +56,54 @@ export function SideScrollerRenderer(props: { onAction: (action: Action) => void
 
         let left = false
         let right = false
+        let up = false
+        let down = false
+
+        const updateMove = () => {
+            let move: Action["move"]
+            if (up && !down) {
+                move = "up"
+            } else if (down && !up) {
+                move = "down"
+            } else if (left && !right) {
+                move = "left"
+            } else if (right && !left) {
+                move = "right"
+            }
+            inputRef.current.move = move
+            actionRef.current(inputRef.current)
+        }
 
         const handleKeyDown = (event: KeyboardEvent) => {
-            console.log(event.key, "kd", left, right)
             if (event.key === "ArrowLeft") {
                 left = true
-                inputRef.current.move = right ? undefined : "left"
-
-                actionRef.current(inputRef.current)
             }
             if (event.key === "ArrowRight") {
                 right = true
-                inputRef.current.move = left ? undefined : "right"
-
-                actionRef.current(inputRef.current)
             }
             if (event.key === "ArrowUp") {
-                inputRef.current.jump = true
-                actionRef.current(inputRef.current)
+                up = true
             }
+            if (event.key === "ArrowDown") {
+                down = true
+            }
+            updateMove()
         }
 
         const handleKeyUp = (event: KeyboardEvent) => {
-            console.log("keyup", event.key)
             if (event.key === "ArrowLeft") {
                 left = false
-                inputRef.current.move = right ? "right" : undefined
-
-                actionRef.current(inputRef.current)
             }
             if (event.key === "ArrowRight") {
                 right = false
-                inputRef.current.move = left ? "left" : undefined
-
-                actionRef.current(inputRef.current)
             }
             if (event.key === "ArrowUp") {
-                inputRef.current.jump = undefined
-                actionRef.current(inputRef.current)
+                up = false
             }
+            if (event.key === "ArrowDown") {
+                down = false
+            }
+            updateMove()
         }
 
         window.addEventListener("keydown", handleKeyDown)
@@ -111,19 +117,19 @@ export function SideScrollerRenderer(props: { onAction: (action: Action) => void
                 type: ActionSymbol,
             })
         }
-    }, [actionRef, inputRef])
+    }, [actionRef, inputRef, hasFocus])
 
     return (
         <>
             {Object.entries(state.players).map(([id, player]) => (
                 <mesh key={id} position={[player.x, player.y, 1]}>
-                    <boxGeometry args={[player.width, player.height, 1]} />
+                    <circleGeometry args={[player.radius, player.radius]} />
                     <meshBasicMaterial color="red" />
                 </mesh>
             ))}
-            {Object.entries(state.platforms).map(([id, platform]) => (
-                <mesh key={id} position={[platform.x, platform.y, 0]}>
-                    <boxGeometry args={[platform.width, platform.height, 1]} />
+            {Object.entries(state.walls).map(([id, wall]) => (
+                <mesh key={id} position={[wall.x, wall.y, 0]}>
+                    <boxGeometry args={[wall.width, wall.height, 1]} />
                     <meshBasicMaterial color="blue" />
                 </mesh>
             ))}
@@ -131,7 +137,7 @@ export function SideScrollerRenderer(props: { onAction: (action: Action) => void
     )
 }
 
-export class SideScroller implements Game {
+export class TopDown implements Game {
     private _bodies: Record<string, Body>
     private _engine: Engine
     private _input: Action
@@ -147,22 +153,40 @@ export class SideScroller implements Game {
     ) {
         this._bodies = {}
         this._engine = Engine.create({
-            gravity: { x: 0, y: -1 },
+            gravity: { x: 0, y: 0 },
         })
         this._input = { type: ActionSymbol }
         this._runner = Runner.create()
         this._state = {
             type: StateSymbol,
             players: {},
-            platforms: {},
+            walls: {},
         }
         this._subscribers = new Set()
         this._tick = 0
-        this._state.platforms["platform-1"] = {
+        this._state.walls["wall-1"] = {
             x: 0,
-            y: -100,
-            width: 500,
+            y: -300,
+            width: 550,
             height: 50,
+        }
+        this._state.walls["wall-2"] = {
+            x: 0,
+            y: 300,
+            width: 550,
+            height: 50,
+        }
+        this._state.walls["wall-3"] = {
+            x: -250,
+            y: 0,
+            width: 50,
+            height: 600,
+        }
+        this._state.walls["wall-4"] = {
+            x: 250,
+            y: 0,
+            width: 50,
+            height: 600,
         }
     }
 
@@ -172,13 +196,11 @@ export class SideScroller implements Game {
         }
 
         this._state.players[playerId] = {
-            onGround: false,
             x: 0,
             y: 0,
             vx: 0,
             vy: 0,
-            width: 50,
-            height: 50,
+            radius: 25,
         }
     }
 
@@ -194,7 +216,7 @@ export class SideScroller implements Game {
         )
 
         return (
-            <SideScrollerRenderer
+            <TopDownRenderer
                 onAction={action => {
                     this._input = action
                 }}
@@ -256,9 +278,9 @@ export class SideScroller implements Game {
                 const right = _right as State
                 const result: State = {
                     type: StateSymbol,
-                    platforms: deepcopy({
-                        ...left.platforms,
-                        ...right.platforms,
+                    walls: deepcopy({
+                        ...left.walls,
+                        ...right.walls,
                     }),
                     players: deepcopy(left.players),
                 }
@@ -271,13 +293,11 @@ export class SideScroller implements Game {
                         continue
                     }
 
-                    result.players[id].height += player.height
-                    result.players[id].width += player.width
+                    result.players[id].radius += player.radius
                     result.players[id].x += player.x
                     result.players[id].y += player.y
                     result.players[id].vx += player.vx
                     result.players[id].vy += player.vy
-                    result.players[id].onGround = result.players[id].onGround != player.onGround
                 }
 
                 return result
@@ -287,13 +307,11 @@ export class SideScroller implements Game {
                 const result: State = deepcopy(state)
 
                 for (const id in state.players) {
-                    result.players[id].height *= -1
-                    result.players[id].width *= -1
+                    result.players[id].radius *= -1
                     result.players[id].x *= -1
                     result.players[id].y *= -1
                     result.players[id].vx *= -1
                     result.players[id].vy *= -1
-                    // result.players[id].onGround is its own inverse
                 }
 
                 return result
@@ -310,21 +328,23 @@ export class SideScroller implements Game {
     private handleAction(playerId: string, _action: GenericAction) {
         const action = _action as Action
         const player = this._state.players[playerId]
+        const speed = 5
 
-        if (action.move) {
-            const dvx = action.move === "left" ? -5 : 5
+        let vx = 0
+        let vy = 0
 
-            if (player.onGround) {
-                player.vx = dvx
-            } else {
-                player.vx = player.vx * 0.9 + dvx * 0.1
-            }
+        if (action.move === "left") {
+            vx = -speed
+        } else if (action.move === "right") {
+            vx = speed
+        } else if (action.move === "up") {
+            vy = speed
+        } else if (action.move === "down") {
+            vy = -speed
         }
 
-        if (action.jump && player.onGround) {
-            player.vy = 8
-            player.onGround = false
-        }
+        player.vx = vx
+        player.vy = vy
     }
 
     private handleSyncToEngine() {
@@ -335,7 +355,7 @@ export class SideScroller implements Game {
             let body = this._bodies[playerId]
 
             if (!body) {
-                body = Bodies.rectangle(player.x, player.y, player.width, player.height, {
+                body = Bodies.circle(player.x, player.y, player.radius, {
                     inertia: Infinity,
                 })
                 this._bodies[playerId] = body
@@ -346,24 +366,23 @@ export class SideScroller implements Game {
 
             Body.setPosition(body, { x: player.x, y: player.y })
             Body.setVelocity(body, { x: player.vx, y: player.vy })
-            // console.log(`Expected vy: ${player.vy}, actual vy: ${body.velocity.y}`)
         }
 
-        for (const platformId in this._state.platforms) {
-            const platform = this._state.platforms[platformId]
-            let body = this._bodies[platformId]
+        for (const wallId in this._state.walls) {
+            const wall = this._state.walls[wallId]
+            let body = this._bodies[wallId]
 
             if (!body) {
-                body = Bodies.rectangle(platform.x, platform.y, platform.width, platform.height, {
+                body = Bodies.rectangle(wall.x, wall.y, wall.width, wall.height, {
                     isStatic: true,
                 })
-                this._bodies[platformId] = body
+                this._bodies[wallId] = body
                 Composite.add(this._engine.world, body)
             }
 
-            removed.delete(platformId)
+            removed.delete(wallId)
 
-            Body.setPosition(body, { x: platform.x, y: platform.y })
+            Body.setPosition(body, { x: wall.x, y: wall.y })
         }
 
         for (const bodyId of removed) {
@@ -371,29 +390,6 @@ export class SideScroller implements Game {
             Composite.remove(this._engine.world, body)
             delete this._bodies[bodyId]
         }
-    }
-
-    private checkPlayerOnGround(playerId: string): boolean {
-        const body = this._bodies[playerId]
-
-        if (!body) {
-            return false
-        }
-
-        const rayStart = {
-            x: body.bounds.max.x,
-            y: body.bounds.min.y - 1,
-        }
-
-        const rayEnd = {
-            x: body.bounds.min.x,
-            y: body.bounds.min.y - 1,
-        }
-
-        const bodies = this._engine.world.bodies.filter(b => b !== body)
-        const collisions = Query.ray(bodies, rayStart, rayEnd)
-
-        return collisions.length > 0
     }
 
     private handleSyncToState() {
@@ -405,16 +401,14 @@ export class SideScroller implements Game {
             player.y = body.position.y
             player.vx = body.velocity.x
             player.vy = body.velocity.y
-
-            player.onGround = this.checkPlayerOnGround(playerId)
         }
 
-        for (const platformId in this._state.platforms) {
-            const platform = this._state.platforms[platformId]
-            const body = this._bodies[platformId]
+        for (const wallId in this._state.walls) {
+            const wall = this._state.walls[wallId]
+            const body = this._bodies[wallId]
 
-            platform.x = body.position.x
-            platform.y = body.position.y
+            wall.x = body.position.x
+            wall.y = body.position.y
         }
     }
 
