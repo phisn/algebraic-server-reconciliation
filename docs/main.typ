@@ -1,7 +1,4 @@
-#import "@preview/lemmify:0.1.8": *
-
-#import "@local/athena-tu-darmstadt-thesis:0.1.0": *
-
+#import "@preview/athena-tu-darmstadt-thesis:0.1.1": *
 
 // setup the template
 #show: tudapub.with(
@@ -68,12 +65,6 @@
 
 #set math.equation(numbering: none)
 
-#let (
-  definition,
-  theorem,
-  rules: thm-rules,
-) = default-theorems("thm-group", lang: "en", thm-numbering: "left")
-
 = Introduction
 
 = Related work
@@ -84,6 +75,42 @@ To rigorously discuss and analyze networking techniques for online games, partic
 
 == Overview
 We define a game world using a game state $S$, an initial game state $s_0 in S$ and a progression function $f: (S, I) -> S$ as $G = (S, s_0, f)$ where $I$ is some external input. A game state at time $t$ can be progressed using some input $i_t in I$ to time $t + 1$ using the progression function: $s_(t + 1) = f(s_t, i_t)$. We can combine the input and state to a frame $r_t = (s_t, i_t)$.
+
+==== Example
+// (new start)
+In our examples here and in the following we will consider two types of games. The first is inspired by the popular web game "agar.io". The game shows the world top down where each player is represented by a circle. In the original game players can "eat" each other to grow bigger, but do not physically interact with each other. In our example we are only considering the movement. To disambigioute players we assing each of the a unique identifier. We can formally define the "top down" game as follows:
+
+$
+  &"Vector                       " & V & subset.eq RR times RR & \
+  &"Player                       " & P & = V \
+  &"State                        " & S & subset.eq id times P \
+  &"Input for a single player    " & I_P & subset.eq BB^4 \
+  &"Input                        " & I & subset.eq id times I_P \
+$
+
+Assuming trivial addition on booleans and vectors we define the progression function:
+$
+  f_t ((i_"up", i_"down", i_"left", i_"right")) & = ((i_"down" - i_"up", i_"right" - i_"left")) \
+  f_f (id, i) & = i_P, i_P in {(id', i') in i | id = id' } \
+  f(s, i) & = {(id, s_p + f_t (f_f (id, i))) | (id, s_p) in s}
+$
+
+Each player consits of a single position. The state is nothing more than the set of all players. An input is represented by the keys hold in a single frame, which can be any of the four natural directions in the 2d space. The progression function maps each player in two steps. First it finds the right input in the tuple of all inputs and then it converts this input into a new direction vector. This vector can be added to the current state to update it. 
+
+The second game is a simple platformer, where the world is seen from the side. It contains multiple players and multiple platforms (or obstacles). To define our state we give each player and each obstacle a unique identifier. We can formally define the "side scroller" game as follows:
+
+$
+  &"Vector                " & V & subset.eq RR times RR & \
+  &"Obstacle              " & O & subset.eq V times V \
+  &"State of platforms    " & S_O & subset.eq id times O \
+  &"Player                " & P & subset.eq V times V \
+  &"State of players      " & S_P & subset.eq id times P \
+  &"Side scroller state   " & S & subset.eq S_P times S_O \
+  &"Input                 " & I & subset.eq BB^3 \
+$
+
+An obstacle is a tuple of two vectors, one representing the position and one the size. And player is also a tuple of two vectors, but one representing the velocity instead of the size, as the size of all players is fixed. We split the state into a tuple of all platforms and all players, where both are tuples representing mappings from an identifier to the actual object. We will not formally define the progression function for the sidescroller, as the implementation of actual physics is out of scope of this thesis.
+// (new end)
 
 We say that a machine $m in M$ is running the game $G$ with state $s_t$ at some time $t$. Clients are machines $c in C subset.eq M$ which contribute input $i^c_t in I^c$ to form the whole input $i^c_t in i_t$. We assume that one machine is designated as the host and all clients can only communicate with the host. The state on the host is considered the truth if states between machines differ.
 
