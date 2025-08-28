@@ -53,9 +53,6 @@
 
   // pages after outline that will not be included in the outline
   additional_pages_after_outline_table_of_contents: [
-    == List of Symbols
-    - $t$ - time
-    == List of Figures
   ],
 
   reviewer_names: (
@@ -67,7 +64,129 @@
 
 = Introduction
 
-= Related work
+/*
+- short history of multiplayer games
+- relevance of gaming in today world
+- relevance of multiplayer games compared to gaming
+- what is AR and VR =>
+- how multiplayer capabilities are fundamental to the metaverse
+*/
+
+= Related Work
+
+The challenge of maintaining a consistent and responsive shared reality across a distributed system is a foundational problem in computer science. In the domain of real-time networked multiplayer games, this challenge is amplified by stringent latency requirements and the demand for interactive fairness. This chapter surveys the landscape of techniques developed to address state synchronization in this context. A notable characteristic of this field is the bifurcation of knowledge dissemination; while foundational principles of distributed computing are well-documented in academic literature, many state-of-the-art implementations and architectural patterns are primarily discussed within industry forums, such as the Game Developers Conference (GDC), and documented in non-peer-reviewed materials like engine wikis and developer blogs. This is a direct consequence of the commercial, fast-paced, and often proprietary nature of game development, where competitive advantage can hinge on networking solutions. Consequently, this review adopts a synthetic approach, integrating formal academic research with seminal industry contributions to provide a holistic overview. The chapter begins by examining the foundational architectures for latency mitigation in the prevalent client-server model. It then contrasts this with the alternative paradigm of deterministic synchronization. Subsequently, it explores theoretical frameworks from distributed systems research, such as Conflict-Free Replicated Data Types (CRDTs), that offer alternative models for state convergence. Finally, it grounds these discussions in case studies of influential, real-world implementations.
+
+== Foundational Architectures for Latency Mitigation
+
+To combat the unresponsiveness caused by network latency, modern games don't eliminate delay but instead conceal it. This chapter introduces the foundational techniques that create this illusion of instantaneous interaction. We will cover the core strategies: Client-Side Prediction for immediate feedback, Server Reconciliation to correct errors, and Server-Side Lag Compensation to ensure fairness.
+
+=== The Authoritative Server and the Challenge of Latency
+
+The predominant architecture for modern multiplayer games is the client-server model, wherein a single server is designated as the authoritative source of truth for the game state. Clients send user inputs to the server and, in return, receive periodic updates, or "snapshots," of the world state. This model centralizes simulation and prevents many forms of cheating, as the client is never fully trusted with game-critical logic. However, it introduces the fundamental problem of network latency: the round-trip time (RTT), illustrated in @rttdiagram, which is the total time it takes for a client's input to reach the server and for the server's response to return. For fast-paced action games, where delays of even a few milliseconds can be perceptible, this latency renders a naive implementation unplayable, as there would be a significant delay between a player's action and its visual feedback. The following sections detail the primary techniques developed to conceal or compensate for this inherent latency.
+
+#figure(
+  image("diagrams/related-work-latency-diagram.svg", width: 80%),
+  caption: [
+    Illustration of network latency between a host and a client. The round-trip time (RTT) is the sum of the send and receive latencies.
+  ],
+) <rttdiagram>
+
+=== Client-Side Prediction and Server Reconciliation
+
+To combat the feeling of unresponsiveness, the most widely adopted technique is Client-Side Prediction. The client does not wait for the server's confirmation to execute a local player's command. Instead, it speculatively executes the input and simulates the outcome locally, providing immediate visual feedback. This creates the illusion of a zero-latency environment for the local player's movement and actions. The earliest known implementation in a first-person shooter was in Duke Nukem 3D (1996), as shown in @dukenukem, with the technique being popularized by id Software's QuakeWorld.
+
+#figure(
+  image("images/duke-nukem-3d.png", width: 80%),
+  caption: [
+    A screenshot from _Duke Nukem 3D_ (1996). The game is one of the earliest known first-person shooters to implement client-side prediction, providing players with immediate visual feedback for their movement to hide network latency.
+  ],
+) <dukenukem>
+
+This speculative execution, however, introduces the problem of divergence. The client's predicted state may differ from the server's authoritative state, which has perfect information about the world, including the actions of other players and collision physics. This discrepancy is known as a prediction error. To resolve this, a process called Server Reconciliation is employed. When the client receives an authoritative state update from the server, it compares this state with its own predicted state. If a mismatch is detected, the client must correct its state to match the server's. A naive correction would result in a jarring visual "snap" as the player character is teleported to the correct position. To mitigate this, a crucial step is performed: the client replays all the inputs that were sent to the server but have not yet been acknowledged in the received server snapshot. By reapplying these inputs from the corrected server state, the client can re-simulate its way back to the present, often resulting in a correct final position and eliminating the visual artifact entirely in most cases. This process requires clients to send inputs with a sequence number and for the server to echo back the number of the last processed input.
+
+=== Rollback Netcode
+
+Rollback netcode can be understood as a more aggressive and generalized application of the principles of prediction and reconciliation, primarily developed to meet the stringent timing requirements of fighting games. While traditional client-side prediction is typically applied only to the local player, rollback netcode predicts the inputs of the remote player as well, often by assuming they will repeat their last known input. The game simulation for all players advances based on these local and predicted inputs. When an actual input from the remote player arrives, the game state is 'rolled back' to the frame before the prediction began, the correct input is inserted, and the simulation is 'fast-forwarded' back to the present time. This multi-step correction process is visualized in @rollbackcomparison. The entire rollback and re-simulation ideally occurs within a single frame, making the correction imperceptible to the user.
+
+#figure(
+  image("diagrams/related-work-rollback-diagram.svg", width: 90%),
+  caption: [
+    Illustration of the rollback netcode process.
+    (a) The client's initial predicted state progression.
+    (b) The server's authoritative state diverges (State G instead of B).
+    (c) Upon receiving the authoritative State G, the client rolls back to State A, applies State G, and then re-simulates its subsequent inputs to reach States H and I.
+    (d) The server again processes inputs and generates a new authoritative State B, which differs from the client's expectation (G).
+    (e) The client performs another rollback, reverting to a prior known good state, applying the server's authoritative State B, and re-simulating all inputs to reach State C.
+    This demonstrates how rollback continuously adjusts the client's timeline by repeatedly re-computing future states (e.g., the state at time point 4 is computed multiple times) based on new authoritative information, ensuring eventual consistency.
+  ],
+) <rollbackcomparison>
+
+The primary benefit is a highly responsive experience that feels akin to offline play, even under significant latency. However, the implementation is complex, requiring the ability to save and load the complete game state very rapidly for every frame and to re-simulate multiple frames' worth of logic in a fraction of a second. While rollbacks aim to be imperceptible, extreme cases or visual debuggers can reveal the momentary "snapping" as shown in @mortalcombatx. Michael Stallone of NetherRealm Studios noted that retrofitting rollback into Mortal Kombat X took approximately two man-years of effort, with significant challenges in optimizing serialization and ensuring non-deterministic elements like visual and audio effects were handled consistently during rollbacks.
+
+#figure(
+  image("images/mortal-kombat-x-rollback.png", width: 90%),
+  caption: [
+    A screenshot from the fighting game _Mortal Kombat X_ (2015). The genre's demand for frame-perfect inputs makes it extremely sensitive to latency, establishing fighting games as a primary driver for the adoption of rollback netcode. The challenges of retrofitting this technology into _Mortal Kombat X_ are a well-documented example of its implementation complexity.
+  ],
+) <mortalcombatx>
+
+=== Server-Side Lag Compensation
+
+While client-side prediction addresses the local player's sense of responsiveness, it does not solve the problem of interactional fairness. A player might fire at a target that is clearly visible on their screen, but due to latency, the target has already moved to a new position on the server's timeline by the time the shot command is processed. To solve this, servers employ Lag Compensation. The server maintains a short history of past player positions. When it receives a user command, such as a shot, it uses the packet's latency to estimate the time at which the command was actually executed on the client. It then temporarily "rewinds" the positions of other players in the world to where they were at that moment in the past. The hit detection is then performed against these historical positions. After the command is processed, the players are returned to their current positions.
+
+This technique, famously implemented in the Source Engine, is often described as "favor the shooter". It ensures that if a player sees a valid target, their shot will register, creating a more reliable and fair experience for the attacker. However, it can lead to perceptual paradoxes for the victim, who may be hit after they have already taken cover on their own screen. This is an accepted trade-off in most modern shooters, prioritizing interactional consistency over strict temporal accuracy. The collection of these techniques reveals a core design duality in networked games. One branch of techniques, encompassing prediction, reconciliation, and rollback, is focused on optimizing the local player's subjective feeling of control and responsiveness. The other branch, exemplified by lag compensation, is focused on optimizing the acting player's objective sense of fairness during interactions. These two goals can be in direct conflict, and the specific balance chosen by a game's networking model defines much of its "feel."
+
+== Deterministic Synchronization Models
+
+In sharp contrast to sending frequent state updates, deterministic models synchronize only player inputs. This section explores architectures where every client runs an identical simulation. Provided each client processes the same inputs in the same order, their worlds remain perfectly synchronized. We will examine the classic lockstep model, its profound bandwidth advantages, and its demanding trade-offs, such as the strict requirement for perfect determinism.
+
+=== The Deterministic Lockstep Architecture
+
+In contrast to the state-synchronization model employed by authoritative servers, the deterministic lockstep model operates on a fundamentally different principle. Instead of transmitting game state, clients only transmit their inputs to one another, either through a peer-to-peer topology or relayed via a simple server. Each client runs an identical, fully deterministic simulation of the game world. Provided that every client starts from the same initial state and processes the exact same sequence of inputs in the exact same order (at the same "tick"), their game states are guaranteed to remain perfectly synchronized.
+
+To ensure inputs are processed in the same order, the simulation proceeds in discrete turns. The game will not advance to the next turn until it has received the inputs from all players for that turn. To hide the latency of waiting for these inputs, games implementing this model introduce a fixed input delay, buffering inputs for a short period before executing them. This model's primary advantage is its extraordinary bandwidth efficiency concerning the number of game entities. Since only small input packets are transmitted, the network load scales with the number of players, not the number of units on screen, making it ideal for genres with potentially thousands of entities, such as Real-Time Strategy (RTS) games.
+
+=== Analysis of Trade-Offs and Application
+
+The benefits of the lockstep model come with severe trade-offs. The entire system is only as fast as the slowest participant; if one player's input packet is delayed, the simulation for all players must freeze until it arrives. This makes the model highly susceptible to players with high latency or unstable connections and limits its practical application to games with a relatively low player count.
+
+Furthermore, the requirement of perfect determinism is a formidable software engineering challenge. The simulation must produce bit-identical results across different hardware, operating systems, and compiler settings. This precludes the use of common non-deterministic elements, most notably standard floating-point arithmetic, which can yield slightly different results on different processor architectures. Developers must rely on fixed-point math and carefully control sources of randomness and data structure ordering to prevent desynchronization, or "desyncs," which are catastrophic failures in this model. A modern evolution, deterministic rollback, combines this model with the rollback techniques described earlier, predicting inputs to avoid freezing and resimulating when the actual inputs arrive.
+
+The choice between an authoritative server model and a deterministic lockstep model represents a fundamental architectural decision to shift the primary burden of complexity. The authoritative server model places complexity in the network layer: managing high bandwidth, compressing state, interpolating between snapshots, and reconciling prediction errors. The deterministic lockstep model places complexity in the application layer: enforcing perfect determinism, managing fixed-point math, and dealing with the game design implications of input delay and simulation freezes. The state-sync model effectively says, "Let the application be complex and non-deterministic; we will solve the resulting inconsistencies at the network level with authority and correction." The input-sync model says, "Let's make the network problem trivial by enforcing extreme constraints on the application itself." The choice depends entirely on the game's genre and design priorities.
+
+== Theoretical Frameworks for State Convergence
+
+Beyond bespoke gaming solutions, the field of distributed systems provides formal frameworks for state synchronization. This section introduces these theoretical concepts, focusing on Strong Eventual Consistency (SEC) and a powerful data structure that enables it: the Conflict-Free Replicated Data Type (CRDT). We will explore how CRDTs mathematically guarantee that disparate clients will eventually reach the same state, offering a robust model for decentralized or peer-to-peer architectures.
+
+=== Strong Eventual Consistency in Peer-to-Peer Gaming
+
+Beyond the specific implementations in gaming, the field of distributed systems provides a theoretical foundation for reasoning about state convergence. A key concept is Strong Eventual Consistency (SEC), which guarantees that if a set of replicas has received the same set of updates, they will be in the same state. Unlike strong consistency models which may require coordination or locking before an operation can be performed, eventual consistency allows replicas to be updated independently and asynchronously, with convergence guaranteed over time. This model is highly relevant for decentralized or peer-to-peer (P2P) game architectures, which lack a central authoritative server to resolve conflicts. The challenge lies in designing data structures and operations that can guarantee this convergence property automatically.
+
+=== Conflict-Free Replicated Data Types (CRDTs)
+
+Conflict-Free Replicated Data Types (CRDTs) are a class of data structures designed to provide SEC. They allow for concurrent updates on different replicas without coordination, and provide a mathematically proven guarantee that the replicas will converge. This is achieved by designing operations that possess specific algebraic properties.
+
+There are two primary forms of CRDTs:
+State-based CRDTs (Convergent Replicated Data Types, or CvRDTs): Each replica can send its entire state to another replica. The receiving replica merges the incoming state with its own using a merge function. To guarantee convergence, this merge function must be associative, commutative, and idempotent. A set of states and a merge function with these properties form a mathematical structure known as a join-semilattice.
+
+Operation-based CRDTs (Commutative Replicated Data Types, or CmRDTs): Instead of shipping the full state, replicas broadcast the update operations themselves. To ensure convergence, these operations must be commutative, meaning they can be applied in any order and still yield the same result. This approach is more bandwidth-efficient but often requires more stringent guarantees from the network layer, such as ensuring that operations are not dropped or duplicated.
+
+
+While CRDTs are successfully used in collaborative editing software and distributed databases, their application to complex game states is an active area of research. A primary challenge is that many game-world interactions are inherently non-commutative; for example, a Move operation followed by a Shoot operation has a different outcome than the reverse. This creates a significant "impedance mismatch" between the clean, algebraic properties required by simple CRDTs and the messy, stateful, and order-dependent nature of game logic. Applying CRDTs to gaming therefore requires either carefully designing game mechanics to be commutative or developing more complex data structures and algorithms that can handle these ordering constraints, which can erode the initial simplicity of the model. The complexity is not eliminated; it is moved from the network protocol into the data modeling of the game itself.
+
+== Case Studies of Networking in Practice
+
+To bridge the gap between theory and implementation, this section examines the networking models of influential, real-world games. By analyzing seminal titles, we can see how the previously discussed concepts are applied to solve practical challenges. We will dissect Valve's Source Engine as a canonical example of client-side prediction and lag compensation, and Blizzard's Overwatch as a modern hybrid that leverages determinism within an authoritative server to achieve high-fidelity competitive play.
+
+=== Valve's Source Engine: A Canonical Implementation
+
+The networking model of Valve's Source Engine, which powers titles like Half-Life 2 and Counter-Strike: Source, serves as a well-documented and highly influential example of the authoritative client-server architecture. Its documentation, made widely available to the modding and development community, has codified many of the foundational techniques discussed in this chapter. The engine simulates the game in discrete "ticks" on an authoritative server. Clients run prediction for the local player's movement to mask latency, and the server performs lag compensation to ensure fairness in hit registration by rewinding player history. The client also performs interpolation between received server snapshots to produce smooth motion for remote entities, deliberately rendering the world slightly in the past to ensure it always has valid states to interpolate between. The extensive set of user-configurable variables (cl_interp, cl_cmdrate, rate) allows for fine-tuning of the trade-offs between responsiveness and smoothness, exposing the underlying mechanics to the end-user. The Source Engine's networking model represents a robust, battle-tested blueprint for state synchronization in fast-paced first-person shooters. 
+
+=== Overwatch: Determinism in a High-Paced Shooter
+
+Blizzard Entertainment's Overwatch presents a more modern and novel architecture, as detailed in a GDC 2017 presentation by Timothy Ford. While it operates on an authoritative client-server model, it uniquely "leverages determinism to achieve responsiveness and precision". This represents a hybrid approach that synthesizes principles from both the state-sync and input-sync paradigms. The server runs the simulation at a fixed tick rate (typically 60Hz for competitive play) and is the final authority on game state. However, the simulation logic itself is deterministic. The client is able to run the exact same simulation code as the server.
+
+This design has significant benefits for client-side prediction. Because the client's simulation is identical to the server's, prediction errors are not caused by subtle divergences in physics or logic (e.g., floating-point inaccuracies). Instead, prediction errors arise only from a lack of information—namely, the inputs of other players that have not yet been received. When the server sends a correction, the client can reconcile its state with high confidence, knowing that the underlying simulation logic is sound. This hybrid model aims to achieve the predictive accuracy of a deterministic system within the responsive, cheat-resistant framework of an authoritative server. This signifies a convergence of the two historically separate paradigms, demonstrating that determinism is not an all-or-nothing architectural choice but can be employed as a powerful tool within a traditional client-server framework to dramatically improve the quality of prediction and reconciliation. The game's netcode also features an "adaptive interpolation delay" system, which attempts to dynamically adjust the rendering buffer based on network conditions to keep gameplay smooth.
 
 = Network model <theory>
 
@@ -76,43 +195,58 @@ To rigorously discuss and analyze networking techniques for online games, partic
 == Overview
 We define a game world using a game state $S$, an initial game state $s_0 in S$ and a progression function $f: (S, I) -> S$ as $G = (S, s_0, f)$ where $I$ is some external input. A game state at time $t$ can be progressed using some input $i_t in I$ to time $t + 1$ using the progression function: $s_(t + 1) = f(s_t, i_t)$. We can combine the input and state to a frame $r_t = (s_t, i_t)$.
 
-==== Example
-// (new start)
-In our examples here and in the following we will consider two types of games. The first is inspired by the popular web game "agar.io". The game shows the world top down where each player is represented by a circle. In the original game players can "eat" each other to grow bigger, but do not physically interact with each other. In our example we are only considering the movement. To disambigioute players we assing each of the a unique identifier. We can formally define the "top down" game as follows:
-
-$
-  &"Vector                       " & V & subset.eq RR times RR & \
-  &"Player                       " & P & = V \
-  &"State                        " & S & subset.eq id times P \
-  &"Input for a single player    " & I_P & subset.eq BB^4 \
-  &"Input                        " & I & subset.eq id times I_P \
-$
-
-Assuming trivial addition on booleans and vectors we define the progression function:
-$
-  f_t ((i_"up", i_"down", i_"left", i_"right")) & = ((i_"down" - i_"up", i_"right" - i_"left")) \
-  f_f (id, i) & = i_P, i_P in {(id', i') in i | id = id' } \
-  f(s, i) & = {(id, s_p + f_t (f_f (id, i))) | (id, s_p) in s}
-$
-
-Each player consits of a single position. The state is nothing more than the set of all players. An input is represented by the keys hold in a single frame, which can be any of the four natural directions in the 2d space. The progression function maps each player in two steps. First it finds the right input in the tuple of all inputs and then it converts this input into a new direction vector. This vector can be added to the current state to update it. 
-
-The second game is a simple platformer, where the world is seen from the side. It contains multiple players and multiple platforms (or obstacles). To define our state we give each player and each obstacle a unique identifier. We can formally define the "side scroller" game as follows:
-
-$
-  &"Vector                " & V & subset.eq RR times RR & \
-  &"Obstacle              " & O & subset.eq V times V \
-  &"State of platforms    " & S_O & subset.eq id times O \
-  &"Player                " & P & subset.eq V times V \
-  &"State of players      " & S_P & subset.eq id times P \
-  &"Side scroller state   " & S & subset.eq S_P times S_O \
-  &"Input                 " & I & subset.eq BB^3 \
-$
-
-An obstacle is a tuple of two vectors, one representing the position and one the size. And player is also a tuple of two vectors, but one representing the velocity instead of the size, as the size of all players is fixed. We split the state into a tuple of all platforms and all players, where both are tuples representing mappings from an identifier to the actual object. We will not formally define the progression function for the sidescroller, as the implementation of actual physics is out of scope of this thesis.
-// (new end)
-
 We say that a machine $m in M$ is running the game $G$ with state $s_t$ at some time $t$. Clients are machines $c in C subset.eq M$ which contribute input $i^c_t in I^c$ to form the whole input $i^c_t in i_t$. We assume that one machine is designated as the host and all clients can only communicate with the host. The state on the host is considered the truth if states between machines differ.
+
+==== Example of a formal game definition
+
+To illustrate the concepts introduced thus far, we consider a simplified game inspired by the mechanics of "agar.io". In this game, the world is viewed from a top-down perspective where each player is represented as a circle. While the original game features collision and consumption mechanics, our simplified version focuses solely on movement to clearly demonstrate the networking concepts. Each player is assigned a unique identifier to distinguish them within the game state.
+
+We formally define this "top-down movement game" as follows:
+
+$
+&"Vector " & V & subset.eq RR times RR & \
+&"Player " & P & = V \
+&"State " & S & subset.eq "id" times P \
+&"Input for a single player " & I_P & subset.eq BB^4 \
+&"Input " & I & subset.eq "id" times I_P \
+$
+
+The input representation captures the four directional keys that can be pressed during a single frame. Assuming standard addition operations on boolean values and vectors, we define the progression function:
+
+$
+f^"transform" ((i_"up", i_"down", i_"left", i_"right")) & = ((i_"down" - i_"up", i_"right" - i_"left")) \
+f^"find" ("id", S) & = x_P, quad x_P in {("id"', x') in S | "id" = "id"' } \
+f(s, i) & = {("id", s_p + f^"transform" (f^"find" ("id", i))) | ("id", s_p) in s}
+$
+
+Each player consists of a two-dimensional position vector. The game state comprises the set of all player positions indexed by their identifiers. The progression function operates in two stages: first, it extracts the appropriate input for each player from the combined input set, then it transforms these boolean directional inputs into velocity vectors that update the player positions.
+
+Consider the following concrete example with two players:
+
+$
+s_0 & = { (p_0, (0, 0)), (p_1, (5, 5)) } \
+i_0 & = {(p_0, (1, 0, 0, 1)), (p_1, (0, 0, 1, 0))} \
+f (s_0, i_0) = s_1 & = { (p_0, (0 + 1, 0 + 1)), (p_1, (5 - 1, 5)) } \
+& = { (p_0, (1, 1)), (p_1, (4, 5)) }
+$
+
+In this example, player $p_0$ moves diagonally (up and right) while player $p_1$ moves left, demonstrating how discrete boolean inputs translate into continuous position updates.
+
+==== Example of client-host architecture
+
+Consider a multiplayer session with two clients $c_0$ and $c_1$ connected to a host $h$. Using our previously defined movement game, we examine how inputs from multiple clients are processed and synchronized through the central host.
+
+Client $c_0$ generates input $i^(c_0)_t = (1, 0, 0, 1)$, indicating upward and rightward movement. Simultaneously, client $c_1$ produces input $i^(c_1)_t = (0, 0, 1, 0)$, representing leftward movement. For multiplayer functionality to work correctly, each client must be aware of all other players' inputs, necessitating a mechanism for input distribution.
+
+Our architecture employs a central host model for this distribution. Following the principle that client-side computation cannot be trusted for security reasons, only the host possesses the authority to evaluate the progression function and determine the canonical game state. This does not preclude clients from performing local predictions for responsiveness, as we shall explore in later sections.
+
+The communication flow proceeds as follows: both clients continuously transmit their inputs to the host $h$. Upon receiving these inputs, the host updates its authoritative state using the progression function:
+
+$
+f(s_0, {(p_0, i^(c_0)_t), (p_1, i^(c_1)_t)}) = s_1
+$
+
+The host then distributes the updated state to all clients. While various optimization strategies exist for this distribution (such as sending only state deltas or relevant subsets), the simplest implementation transmits the complete state $s_1$ to ensure all clients maintain a consistent view of the game world.
 
 === Naive model
 
@@ -120,11 +254,81 @@ We have one host $h$ and $n$ clients $c_i$. Each client $c$ has a round trip tim
 
 Both the client and the host run with a fixed time interval $t^i$ which is usually smaller than $t^r_c$. Therefore the host cannot wait with processing all input $i^c_t$ and will use the most recent input instead. This means that each client will only be able to react with input $i^c_t$ to state $s_(t - t^r_c)$. We call this the naive model.
 
+==== Example of naive model networking
+
+To demonstrate the temporal challenges inherent in the naive model, we trace through a concrete execution scenario using our movement game. Consider two clients with asymmetric network conditions:
+
+- Client $c_0$: round trip time $t^r_(c_0) = 50 "ms"$ (25 ms send, 25 ms receive)
+- Client $c_1$: round trip time $t^r_(c_1) = 200 "ms"$ (100 ms send, 100 ms receive)  
+- Fixed tick interval: $t^i = 50 "ms"$
+
+Starting with initial state $s_0 = {(p_0, (0, 0)), (p_1, (5, 5))}$, the host broadcasts this state at tick 0. The following table traces the first 10 ticks of execution:
+
+#table(
+  columns: 7,
+  align: (center, center, center, center, center, center, center),
+  [*Tick*], [*Host State*], [*$c_0$ Sees*], [*$c_1$ Sees*], [*$c_0$ Input*], [*$c_1$ Input*], [*Inputs at Host*],
+  [$0$], [$(0,0), (5,5)$], [—], [—], [—], [—], [None],
+  [$1$], [$(0,0), (5,5)$], [—], [—], [—], [—], [None],
+  [$2$], [$(0,0), (5,5)$], [$(0,0), (5,5)$], [—],[right], [—], [None],
+  [$3$], [$(0,1), (5,5)$], [$(0,0), (5,5)$], [$(0,0), (5,5)$], [right], [—], [$c_0$: right],
+  [$4$], [$(0,2), (5,5)$], [$(0,1), (5,5)$], [$(0,0), (5,5)$], [right], [up], [$c_0$: right],
+  [$5$], [$(0,3), (5,5)$], [$(0,2), (5,5)$], [$(0,1), (5,5)$], [right], [up], [$c_0$: right],
+  [$6$], [$(0,4), (6,5)$], [$(0,3), (5,5)$], [$(0,2), (5,5)$], [right], [up], [Both inputs],
+  [$7$], [$(0,5), (7,5)$], [$(0,4), (6,5)$], [$(0,3), (5,5)$], [right], [up], [Both inputs],
+  [$8$], [$(0,6), (8,5)$], [$(0,5), (7,5)$], [$(0,4), (6,5)$], [right], [up], [Both inputs],
+  [$9$], [$(0,7), (9,5)$], [$(0,6), (8,5)$], [$(0,5), (7,5)$], [right], [up], [Both inputs],
+)
+
+The execution reveals two critical issues with the naive model. First, examining the input delay: client $c_0$ receives the initial state at tick 2 and immediately sends a "right" input. This input reaches the host at tick 3, where it gets processed and updates player $p_0$ to position $(0,1)$. However, $c_0$ doesn't observe this change until tick 4, a full round trip time of 50 ms after sending the input. 
+
+Similarly, client $c_1$ receives the initial state at tick 3, sends an "up" input at tick 4, but the host doesn't process it until tick 6 due to the 100 ms transmission delay. Client $c_1$ finally sees their first movement at tick 8, experiencing a 200 ms delay between action and feedback.
+
+The second, more subtle issue is the competitive unfairness in control responsiveness. Client $c_0$ observes their input taking effect at tick 4, allowing them to make informed decisions about their next move by tick 5. If they realize they're moving in the wrong direction, they can correct course with only a 50 ms feedback loop. In contrast, client $c_1$ doesn't see their first movement until tick 8, a 200 ms delay that severely hampers their ability to make tactical adjustments. 
+
+Consider a scenario where both players accidentally move toward a hazard: client $c_0$ can recognize and correct their mistake within 2 ticks, while client $c_1$ continues blind movement for 4 ticks before seeing any feedback. This creates a fundamental inequality where the lower-latency player has superior control precision, faster error correction, and more responsive gameplay, advantages that compound over time and cannot be overcome through player skill alone.
+
 === Fair naive model
 
-Each client $c$ can only respond to a state $s_t$ with an input arriving at the host $t^r_c$ time later. Since $t^r_c$ is different for every player, this is not fair. We define a fair model as: given a fixed delay $delta$, every client can respond to the same state $s_t$ with input $i^c_(t + delta)$. We can make the previous model fair by only processing input on the host, once we received input from all players. Every player is able to react to state $s_t$ with the same delay of $delta = max_i t^r_i$. Intuitively, we artificially delay what each player can see to the slowest player. We call this the fair naive model.
+Each client $c$ can only respond to a state $s_t$ with an input arriving at the host $t^r_c$ time later. Since $t^r_c$ is different for every player, this is not fair. 
+
+We define a fair model as: given a fixed delay $delta$, every client can respond to the same state $s_t$ with input $i^c_(t + delta)$. We can make the previous model fair by only processing input on the host, once we received input from all players. Every player is able to react to state $s_t$ with the same delay of $delta = max_i t^r_i$. Intuitively, we artificially delay what each player can see to the slowest player. We call this the fair naive model.
 
 Many games are based on reaction, doing an action in response to an event. A major problem with the (fair) naive model is that player inputs in reaction to a present state will only be applied to a future state on the host.
+
+==== Example of fair naive model networking
+
+The fair naive model addresses the competitive inequality of the naive model by synchronizing all players to the slowest connection. Using the same network configuration and initial state:
+
+- Client $c_0$: round trip time $t^r_(c_0) = 50 "ms"$ (25 ms send, 25 ms receive)
+- Client $c_1$: round trip time $t^r_(c_1) = 200 "ms"$ (100 ms send, 100 ms receive)
+- Fixed tick interval: $t^i = 50 "ms"$
+
+Starting with initial state $s_0 = {(p_0, (0, 0)), (p_1, (5, 5))}$, the host broadcasts at tick 0. The key difference is that the host now buffers inputs until all players' commands for a given game state have arrived:
+
+#table(
+  columns: 7,
+  align: (center, center, center, center, center, center, center),
+  [*Tick*], [*Host State*], [*$c_0$ Sees*], [*$c_1$ Sees*], [*$c_0$ Input*], [*$c_1$ Input*], [*Host Buffers*],
+  [$0$], [$(0,0), (5,5)$], [—], [—], [—], [—], [Empty],
+  [$1$], [$(0,0), (5,5)$], [—], [—], [—], [—], [Empty],
+  [$2$], [$(0,0), (5,5)$], [$(0,0), (5,5)$], [—], [right], [—], [Empty],
+  [$3$], [$(0,0), (5,5)$], [$(0,0), (5,5)$], [$(0,0), (5,5)$], [right], [—], [$c_0$: right],
+  [$4$], [$(0,0), (5,5)$], [$(0,0), (5,5)$], [$(0,0), (5,5)$], [right], [up], [$c_0$: right],
+  [$5$], [$(0,0), (5,5)$], [$(0,0), (5,5)$], [$(0,0), (5,5)$], [right], [up], [$c_0$: right],
+  [$6$], [$(0,1), (6,5)$], [$(0,0), (5,5)$], [$(0,0), (5,5)$], [right], [up], [Both active],
+  [$7$], [$(0,2), (7,5)$], [$(0,0), (5,5)$], [$(0,0), (5,5)$], [right], [up], [Both active],
+  [$8$], [$(0,3), (8,5)$], [$(0,1), (6,5)$], [$(0,0), (5,5)$], [right], [up], [Both active],
+  [$9$], [$(0,4), (9,5)$], [$(0,2), (7,5)$], [$(0,1), (6,5)$], [right], [up], [Both active],
+)
+
+The fair naive model fundamentally changes how the host processes inputs. When client $c_0$'s input arrives at tick 3, the host does not immediately apply it. Instead, it stores this input in a buffer and continues waiting. The host maintains the game state at $(0,0), (5,5)$ for ticks 3, 4, and 5, despite having valid input from $c_0$. Only at tick 6, when client $c_1$'s input finally arrives after its 100 ms journey, does the host process both inputs simultaneously.
+
+This buffering strategy creates perfect fairness in reaction timing. Both clients receive the initial state and have the opportunity to respond before any inputs are processed. When the host finally applies inputs at tick 6, it creates state $(0,1), (6,5)$ where both players have moved. Client $c_0$ sees this result at tick 8, while client $c_1$ sees it at tick 9. Critically, both players observe their inputs taking effect relative to the same initial state, eliminating the advantage that lower latency previously provided.
+
+However, this fairness comes at a significant cost to responsiveness. Client $c_0$, who previously enjoyed a 50 ms feedback loop, now experiences a 200 ms delay between input and observation, matching the slowest player. The buffering essentially forces all players to experience the worst-case latency in the session. In our example, client $c_0$ sends their input at tick 2 but doesn't see the result until tick 8, a delay of 300 ms total. 
+
+This artificial throttling makes the game feel sluggish for players with good connections, potentially driving them away from servers with high-latency participants. The fair naive model thus trades individual responsiveness for competitive balance, a compromise that works poorly for fast-paced action games where immediate feedback is crucial to the gameplay experience.
 
 === Lockstep
 
@@ -132,11 +336,59 @@ In the fair naive model, the host is applying old inputs because the interval ti
 
 This model is known as the lockstep model and popular in strategy games, where latency or a longer interval are not a big problem.
 
+==== Example of lockstep model
+
+The lockstep model ensures perfect synchronization by pausing the entire simulation after each state update until all clients have received and responded. Using the same network configuration:
+
+- Client $c_0$: round trip time $t^r_(c_0) = 50 "ms"$ (25 ms send, 25 ms receive)
+- Client $c_1$: round trip time $t^r_(c_1) = 200 "ms"$ (100 ms send, 100 ms receive)
+- Fixed tick interval: $t^i = 50 "ms"$
+
+Starting with initial state $s_0 = {(p_0, (0, 0)), (p_1, (5, 5))}$, the host initiates the first lockstep cycle at tick 0:
+
+#table(
+  columns: 7,
+  align: (center, center, center, center, center, center, center),
+  [*Tick*], [*Host State*], [*$c_0$ Sees*], [*$c_1$ Sees*], [*$c_0$ Input*], [*$c_1$ Input*], [*Host Action*],
+  [$0$], [$(0,0), (5,5)$], [—], [—], [—], [—], [Broadcast $s_0$],
+  [$1$], [Waiting], [$(0,0), (5,5)$], [—], [right], [—], [Wait for all],
+  [$2$], [Waiting], [Sent right], [$(0,0), (5,5)$], [—], [up], [Wait for all],
+  [$3$], [Waiting], [Waiting], [Sent up], [—], [—], [Wait for all],
+  [$4$], [$(0,1), (6,5)$], [Waiting], [Waiting], [—], [—], [Process inputs],
+  [$5$], [$(0,1), (6,5)$], [$(0,1), (6,5)$], [Waiting], [right], [—], [Broadcast $s_1$],
+  [$6$], [Waiting], [Sent right], [$(0,1), (6,5)$], [—], [up], [Wait for all],
+  [$7$], [Waiting], [Waiting], [Sent up], [—], [—], [Wait for all],
+  [$8$], [$(0,2), (7,5)$], [Waiting], [Waiting], [—], [—], [Process inputs],
+  [$9$], [$(0,2), (7,5)$], [$(0,2), (7,5)$], [Waiting], [right], [—], [Broadcast $s_2$],
+)
+
+The lockstep model operates in discrete, synchronized cycles that guarantee perfect consistency across all clients. Each cycle follows a rigid pattern: the host broadcasts a state, waits for all clients to receive it, waits for all clients to send their inputs based on that state, and only then processes those inputs to generate the next state. This creates natural synchronization points where the entire game pauses until the slowest participant catches up.
+
+In our execution, the first cycle begins at tick 0 when the host broadcasts $s_0$. Client $c_0$ receives this state at tick 1 and immediately sends a "right" input that reaches the host at tick 2. However, the host cannot proceed because client $c_1$ only receives the state at tick 2 and sends an "up" input that doesn't arrive until tick 4. Only then can the host process both inputs together, updating the state to $(0,1), (6,5)$ and beginning the second cycle at tick 5.
+
+The lockstep model achieves perfect fairness and eliminates all prediction or synchronization issues. Every client sees exactly the same game state before making decisions, and all inputs are processed simultaneously with no player gaining an advantage from lower latency. This makes it ideal for turn-based strategy games or scenarios where absolute consistency matters more than responsiveness.
+
+However, the cost is severe: the game effectively runs at the speed of the slowest connection. With client $c_1$'s 200 ms round trip time, the game can only update every 4 ticks (200 ms), reducing the effective update rate from 20 Hz to 5 Hz. This dramatic slowdown makes the lockstep model unsuitable for any real-time game. Furthermore, if any client experiences a temporary network spike or packet loss, the entire game freezes for all players until that client recovers. The model essentially chains all players to the worst network conditions present in the session, making it impractical for modern action games where fluid, responsive gameplay is essential.
+
 === Player observation limitation
 
 We are bound in the time a player is able to react to other players' inputs. One player has to first send their inputs and another player can only then receive them. Any changes to the state from player $c prime$ will never be visible to another player $c$ faster than $t^e_c + t^s_(c prime)$.
 
 When the interval rate is fixed to a time $delta < t^e_c + t^s_(c prime)$, which is usually the case, a client $c$ will already have made an input $i^c_(t + 1)$ without there being a possibility of receiving input $i^(c prime)_t$ from client $c prime$. Therefore according to our definition, games with a fixed interval cannot be fair.
+
+==== Example of player observation limitation
+
+To illustrate this fundamental constraint, consider our two clients attempting to react to each other's movements. Assume optimal conditions with immediate processing and no artificial delays:
+
+- Client $c_0$: send 25 ms, receive 25 ms
+- Client $c_1$: send 100 ms, receive 100 ms
+- Fixed tick interval: $t^i = 50 "ms"$
+
+Suppose at tick 0, player $p_1$ suddenly moves to block a pathway at position $(3, 5)$. Client $c_1$ sends this input immediately, taking 100 ms to reach the host. The host processes it instantly and broadcasts the update, which takes another 25 ms to reach client $c_0$. Therefore, client $c_0$ cannot possibly see player $p_1$'s blocking move until 125 ms after $c_1$ initiated it.
+
+This 125 ms minimum reaction window exists regardless of the networking model employed. During this time, if the tick interval is 50 ms, client $c_0$ will have already made at least two movement decisions without any possibility of knowing about the blocked path. If $c_0$ was moving toward position $(3, 5)$, they would continue moving toward it for at least two ticks before the blocking becomes visible.
+
+This limitation becomes particularly problematic in competitive scenarios requiring split-second reactions. In a fighting game where a 100 ms reaction time separates amateur from professional players, this network-imposed delay makes true real-time interaction impossible. The only way to reduce this limitation is through better network infrastructure (lower latency), not through improved networking models. This physical constraint fundamentally shapes how we must design networked games, leading to the prediction and reconciliation techniques discussed in subsequent sections.
 
 === Client side prediction <client-side-prediction>
 
@@ -151,6 +403,47 @@ One very popular game that is using a slightly modified variation of this method
 One major problem with client-side reconciliation is that finding a good partial application function can be difficult. The reason is that we are looking at divergences between $s_(t + 1)$ and $p^c_(t, t^r_c)$, therefore a difference in time of $t^r_c - 1 approx t^r_c$. Therefore even a perfect prediction will diverge on the scale of the round trip time.
 
 One alternative approach would be to not compare the current state for divergence, but memorize past states. Given an interval time of $t^i$, the client needs to memorize $n_"predict" = t^r_c slash t^i$ game states, which can be partial states. This solution unfortunately doesn't solve the snapping when divergences are found, since it forces the client from a predicted state in time $t + t^r_c$ to $t + 1$.
+
+==== Example of client-side prediction
+
+To demonstrate client-side prediction in our movement game, we first define a prediction function that allows a client to speculatively apply their own inputs without waiting for server confirmation. Given that we define clients as identifiers, we can formalize the prediction function as follows:
+
+$
+f^"transform" ((i_"up", i_"down", i_"left", i_"right")) & = ((i_"down" - i_"up", i_"right" - i_"left")) \
+f^"find" ("id", S) & = x_P, quad x_P in {("id"', x') in S | "id" = "id"' } \
+f^"update" ("id", s_p, S) & = {("id", s_p)} union {("id"', x') in S | "id" != "id"'} \
+f^p (i_c, "id", s) & = f^"update" ("id", f^"find" ("id", s) + f^"transform" (i_c), s)
+$
+
+The prediction function $f^p$ takes a client's input $i_c$, the client's identifier, and the current state, then returns an updated state where only the predicting client's position has changed. Other players remain at their last known positions from the server's authoritative state.
+
+Consider a scenario with client $c_0$ controlling player $p_0$, with a round trip time of 100 ms (50 ms each direction) and a tick interval of 25 ms. Without prediction, the client would experience a 100 ms delay between pressing a key and seeing their character move. With client-side prediction, the response becomes instantaneous:
+
+#table(
+  columns: 6,
+  align: (center, center, center, center, center, center),
+  [***Tick***], [***Server State***], [***Client Receives***], [***Client Input***], [***Predicted State***], [***Client Display***],
+  [$0$], [$(0,0), (5,5)$], [—], [—], [—], [$(0,0), (5,5)$],
+  [$1$], [$(0,0), (5,5)$], [—], [—], [—], [$(0,0), (5,5)$],
+  [$2$], [$(0,0), (5,5)$], [$(0,0), (5,5)$], [right], [$(1,0), (5,5)$], [$(1,0), (5,5)$],
+  [$3$], [$(0,0), (5,5)$], [$(0,0), (5,5)$], [right], [$(2,0), (5,5)$], [$(2,0), (5,5)$],
+  [$4$], [$(1,0), (5,5)$], [$(0,0), (5,5)$], [right], [$(3,0), (5,5)$], [$(3,0), (5,5)$],
+  [$5$], [$(2,0), (5,5)$], [$(0,0), (5,5)$], [right], [$(4,0), (5,5)$], [$(4,0), (5,5)$],
+  [$6$], [$(3,0), (6,5)$], [$(1,0), (5,5)$], [stop], [$(4,0), (5,5)$], [$(4,0), (5,5)$],
+  [$7$], [$(3,0), (7,5)$], [$(2,0), (5,5)$], [stop], [$(4,0), (5,5)$], [$(4,0), (5,5)$],
+  [$8$], [$(3,0), (8,5)$], [$(3,0), (6,5)$], [stop], [$(3,0), (6,5)$], [$(3,0), (6,5)$],
+  [$9$], [$(3,0), (9,5)$], [$(3,0), (7,5)$], [stop], [$(3,0), (7,5)$], [$(3,0), (7,5)$],
+)
+
+At tick 2, the client receives the initial state and immediately begins moving right. Without prediction, the client would display $(0,0)$ until tick 6. With prediction, the movement appears instantaneous: the client displays $(1,0)$ at tick 2, even though the server hasn't processed this input yet. The client continues predicting movement, reaching $(4,0)$ by tick 5.
+
+The critical moment occurs at tick 6 when the client receives the server state $(1,0), (5,5)$. This confirms the client's first input was processed, but also reveals that player $p_1$ has moved to $(6,5)$ - information the client couldn't predict. At this point, the predicted position $(4,0)$ must be reconciled with the server's authoritative position $(1,0)$ plus the three additional predictions made since then.
+
+Notice how the prediction creates a smooth experience for the controlling player: they press right and immediately see movement. However, it also introduces divergence between the predicted and authoritative states. In our example, the client predicted player $p_0$ at position $(4,0)$ at tick 6, while the server only had them at $(3,0)$. This divergence of one position unit represents the unconfirmed prediction still in transit to the server.
+
+The prediction function must carefully handle state updates to avoid "snapping" - sudden position corrections that break immersion. When the server state arrives at tick 8 showing $(3,0), (6,5)$, the client has predicted $(4,0)$ but stopped sending input at tick 6. The reconciliation process must recognize that position $(3,0)$ represents the final authoritative position after processing all inputs, allowing the display to smoothly converge to the correct state.
+
+This example demonstrates the fundamental trade-off of client-side prediction: immediate responsiveness at the cost of temporary divergence from the authoritative state. The prediction allows fluid gameplay even with 100 ms latency, transforming what would be a sluggish experience into one that feels instantaneous. However, it requires sophisticated reconciliation mechanisms to handle the inevitable corrections when predicted and authoritative states diverge, particularly when multiple players' actions interact in ways the client cannot predict locally.
 
 === Server reconciliation <theory-rollback>
 
@@ -175,7 +468,7 @@ We assume a delta state that defines an abelian group with $S = Delta S$, $e = s
 
 We define a delta prediction function $f^(Delta p): I^c times S -> Delta S$ producing a delta $Delta p^c_(t,d) = f^(Delta p) (i^c_(t + d), p^c_(t,d))$ instead of the whole state when predicting the next state. Therefore $p^c_(t,d + 1) = p^c_(t,d) + Delta p^c_(t,d)$ and $p^c_(t,d) = s_t + sum^d_(k=0) Delta p^c_(t,k)$.
 
-The client memorizes $n_"predicted"$ predicted deltas $Delta p^c_(k): t <= k <= t + t^r_c$. We define a new server reconciliation method as follows: For each incoming $Delta s_(t + 1)$, we add a correction update $epsilon.alt = Delta s_(t + 1) - Delta p^c_t$ to our current state $p^c_(t + 1, t^r_c) = p^c_(t, t^r_c) + epsilon.alt$. Assuming that predictions are mostly uncorrelated $Delta p^c_(t,d) approx Delta p^c_(t + 1,d - 1)$, we can show convergence:
+The client memorizes $n_"predicted"$ predicted deltas $Delta p^c_(t, k): 0 <= k <= t^r_c$. We define a new server reconciliation method as follows: For each incoming $Delta s_(t + 1)$, we add a correction update $epsilon.alt = Delta s_(t + 1) - Delta p^c_(t, 1)$ to our current state $p^c_(t + 1, t^r_c) = p^c_(t, t^r_c) + epsilon.alt$. Assuming that predictions are mostly uncorrelated $Delta p^c_(t,d) approx Delta p^c_(t + 1,d - 1)$, we can show convergence:
 $
   & p^c_(t, t^r_c) + epsilon.alt \
   = & p^c_(t, t^r_c) + (Delta s_(t + 1) - Delta p^c_(t, 0)) \
@@ -188,7 +481,13 @@ $
 
 Therefore we can reach any prediction $p^c_(t + d,t^r_c)$ over time. We call this reconciliation method algebraic server reconciliation.
 
+=== Abelian group for ECS games
+
 === Limitations
+
+// - Does not work for games where things do not have an identity
+// - Does not work well if the base assumption is not met. => dependencies between predictions
+// 
 
 = Networking Architecture
 
@@ -375,4 +674,39 @@ By directly adjusting the predicted state through these well-behaved delta manip
 
 = Discussion
 
+// - we have seen that not only there exist many networking approaches but also variations
+// - many networking approaches have oppurtunities for optimization. for example, if only small
+// parts of world are static, then implementing rollback synchronization can be cheap. 
+// - if state changes that need to be predicted are generally small enough, one can also go an approach
+// like minecraft by sending the state from the client. This makes development cost cheaper.
+// - in the end it is often a tradeoff between performance, consistency and security. As for example the
+// minecraft approach lacks strong security mechanisms.
+// - our introduced method uses techniques already widely known and used in the software industry, for example in 
+// databases or user applications.
+// - our method does not work in cases with strong dependencies between states or states with entities without
+// identity. this is especially a problem in sandbox games but even more so in voxel games. the problem with voxel
+// games as previously explained is that blocks by design do not have an identity but its position. This makes the 
+// use of algebraic networking impossible
+// - but the amount of multiplayer games who can benefit from algebraic reconciliation is still significant.
+// - networking methods shouldnt be seen as absolute approaches but in combination. 
+// - since mutliplayer games can employ specific opimizations depending on their world model, each game will most
+// likely have their custom solution. while this might not make sense for small indie studios, this is especially
+// relevant for big projects.
+// - therefore we can say, that modern projects will use a hybrid approach, where the state is sliced into multiple parts.
+// some parts of the state which does not directly depend on many other parts of the state, can easily be synchronized 
+// using algebraic server reconciliation. this method can then be thought of an extension to CRDTs.
+// - while crdts try to be commutative with everything, the idea behind algebraic server reconciliation is that we still
+// have a central server. we exploit this fact when using them.
+// - our contribution is not only a new apporach to game networking, but also in a possible way to formilize game networking in general
+// and how to build abelian groups for almost any game.
+
 = Future work
+
+// - one of the core aspects we did not explore are hybrid models. approaches where we could use some reconciliation
+// methods for one part of the state and others for other parts of the state.
+// - we did not implement a full game based on the approaches presented here, which would be the next logical step
+// to show that our method is relevant in the industry.
+// - there are many possible optimizations which can be implemented to further enhance our method. for example one could
+// be inspired by minecraft and send merkel trees of the state deltas to the server. the server can now decide which users
+// actually need state updates. games with big states could thereof save state transmission, which is most commonly correctly
+// predicted.
