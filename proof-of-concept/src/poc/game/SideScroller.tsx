@@ -9,7 +9,9 @@ import {
     Game,
     GenericAction,
     GenericCompoundAction,
+    GenericState,
     StateSymbol,
+    VectorSpace,
 } from "./game"
 
 export interface Action {
@@ -294,6 +296,37 @@ export class SideScroller implements Game {
                     result.players[id].vx *= -1
                     result.players[id].vy *= -1
                     // result.players[id].onGround is its own inverse
+                }
+
+                return result
+            },
+
+            zero() {
+                const state: State = {
+                    type: StateSymbol,
+                    platforms: {},
+                    players: {},
+                }
+
+                return state as GenericState
+            },
+        }
+    }
+
+    public vectorSpace(): VectorSpace {
+        return {
+            ...this.abelianGroup(),
+            scale(_state, scalar) {
+                const state = _state as State
+                const result: State = deepcopy(state)
+
+                for (const id in state.players) {
+                    result.players[id].height *= scalar
+                    result.players[id].width *= scalar
+                    result.players[id].x *= scalar
+                    result.players[id].y *= scalar
+                    result.players[id].vx *= scalar
+                    result.players[id].vy *= scalar
                 }
 
                 return result

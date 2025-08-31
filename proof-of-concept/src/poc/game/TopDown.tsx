@@ -9,7 +9,9 @@ import {
     Game,
     GenericAction,
     GenericCompoundAction,
+    GenericState,
     StateSymbol,
+    VectorSpace,
 } from "./game"
 
 export interface Action {
@@ -258,6 +260,14 @@ export class TopDown implements Game {
             }
         }
 
+        for (const playerId in this._state.players) {
+            // const body = this._bodies[playerId]
+            if (!(playerId in action)) {
+                this._state.players[playerId].vx = 0
+                this._state.players[playerId].vy = 0
+            }
+        }
+
         this.update(action)
 
         if (this.props.static_entities_in_prediction) {
@@ -312,6 +322,35 @@ export class TopDown implements Game {
                     result.players[id].y *= -1
                     result.players[id].vx *= -1
                     result.players[id].vy *= -1
+                }
+
+                return result
+            },
+            zero() {
+                const state: State = {
+                    type: StateSymbol,
+                    players: {},
+                    walls: {},
+                }
+
+                return state as GenericState
+            },
+        }
+    }
+
+    public vectorSpace(): VectorSpace {
+        return {
+            ...this.abelianGroup(),
+            scale(_state, scalar) {
+                const state = _state as State
+                const result: State = deepcopy(state)
+
+                for (const id in state.players) {
+                    result.players[id].radius *= scalar
+                    result.players[id].x *= scalar
+                    result.players[id].y *= scalar
+                    result.players[id].vx *= scalar
+                    result.players[id].vy *= scalar
                 }
 
                 return result

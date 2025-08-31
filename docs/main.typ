@@ -109,15 +109,12 @@ This speculative execution, however, introduces the problem of divergence. The c
 Rollback netcode can be understood as a more aggressive and generalized application of the principles of prediction and reconciliation, primarily developed to meet the stringent timing requirements of fighting games. While traditional client-side prediction is typically applied only to the local player, rollback netcode predicts the inputs of the remote player as well, often by assuming they will repeat their last known input. The game simulation for all players advances based on these local and predicted inputs. When an actual input from the remote player arrives, the game state is 'rolled back' to the frame before the prediction began, the correct input is inserted, and the simulation is 'fast-forwarded' back to the present time. This multi-step correction process is visualized in @rollbackcomparison. The entire rollback and re-simulation ideally occurs within a single frame, making the correction imperceptible to the user.
 
 #figure(
-  image("diagrams/related-work-rollback-diagram.svg", width: 90%),
+  image("diagrams/related-rollback-diagram.svg", width: 90%),
   caption: [
     Illustration of the rollback netcode process.
     (a) The client's initial predicted state progression.
     (b) The server's authoritative state diverges (State G instead of B).
     (c) Upon receiving the authoritative State G, the client rolls back to State A, applies State G, and then re-simulates its subsequent inputs to reach States H and I.
-    (d) The server again processes inputs and generates a new authoritative State B, which differs from the client's expectation (G).
-    (e) The client performs another rollback, reverting to a prior known good state, applying the server's authoritative State B, and re-simulating all inputs to reach State C.
-    This demonstrates how rollback continuously adjusts the client's timeline by repeatedly re-computing future states (e.g., the state at time point 4 is computed multiple times) based on new authoritative information, ensuring eventual consistency.
   ],
 ) <rollbackcomparison>
 
@@ -132,9 +129,20 @@ The primary benefit is a highly responsive experience that feels akin to offline
 
 === Server-Side Lag Compensation
 
-While client-side prediction addresses the local player's sense of responsiveness, it does not solve the problem of interactional fairness. A player might fire at a target that is clearly visible on their screen, but due to latency, the target has already moved to a new position on the server's timeline by the time the shot command is processed. To solve this, servers employ Lag Compensation. The server maintains a short history of past player positions. When it receives a user command, such as a shot, it uses the packet's latency to estimate the time at which the command was actually executed on the client. It then temporarily "rewinds" the positions of other players in the world to where they were at that moment in the past. The hit detection is then performed against these historical positions. After the command is processed, the players are returned to their current positions.
+While client-side prediction addresses the local player's sense of responsiveness, it does not solve the problem of interactional fairness. A player might fire at a target that is clearly visible on their screen, but due to latency, the target has already moved to a new position on the server's timeline by the time the shot command is processed. This fundamental time discrepancy is illustrated in @relatedlagcompensation. 
 
-This technique, famously implemented in the Source Engine, is often described as "favor the shooter". It ensures that if a player sees a valid target, their shot will register, creating a more reliable and fair experience for the attacker. However, it can lead to perceptual paradoxes for the victim, who may be hit after they have already taken cover on their own screen. This is an accepted trade-off in most modern shooters, prioritizing interactional consistency over strict temporal accuracy. The collection of these techniques reveals a core design duality in networked games. One branch of techniques, encompassing prediction, reconciliation, and rollback, is focused on optimizing the local player's subjective feeling of control and responsiveness. The other branch, exemplified by lag compensation, is focused on optimizing the acting player's objective sense of fairness during interactions. These two goals can be in direct conflict, and the specific balance chosen by a game's networking model defines much of its "feel."
+To solve this, servers employ Lag Compensation. The server maintains a short history of past player positions. When it receives a user command, such as a shot, it uses the packet's latency to estimate the time at which the command was actually executed on the client. It then temporarily "rewinds" the positions of other players in the world to where they were at that moment in the past. The hit detection is then performed against these historical positions. After the command is processed, the players are returned to their current positions.
+
+#figure(
+  image("diagrams/related-lag-compensation.svg", width: 80%),
+  caption: [
+    Visualizing the time discrepancy that necessitates server-side lag compensation. (a) The client performs an action, such as shooting, at Time 1 based on their local view of the game. (b) Due to network latency, the server receives this action at a later point, Time 2. Lag compensation allows the server to "rewind" the game state to evaluate the client's action as it occurred in the past, ensuring the outcome matches what the player saw.
+  ],
+) <relatedlagcompensation>
+
+This technique, famously implemented in the Source Engine, is often described as "favor the shooter". It ensures that if a player sees a valid target, their shot will register, creating a more reliable and fair experience for the attacker. However, it can lead to perceptual paradoxes for the victim, who may be hit after they have already taken cover on their own screen. This is an accepted trade-off in most modern shooters, prioritizing interactional consistency over strict temporal accuracy. 
+
+The collection of these techniques reveals a core design duality in networked games. One branch of techniques, encompassing prediction, reconciliation, and rollback, is focused on optimizing the local player's subjective feeling of control and responsiveness. The other branch, exemplified by lag compensation, is focused on optimizing the acting player's objective sense of fairness during interactions. These two goals can be in direct conflict, and the specific balance chosen by a game's networking model defines much of its "feel".
 
 == Deterministic Synchronization Models
 
@@ -144,7 +152,14 @@ In sharp contrast to sending frequent state updates, deterministic models synchr
 
 In contrast to the state-synchronization model employed by authoritative servers, the deterministic lockstep model operates on a fundamentally different principle. Instead of transmitting game state, clients only transmit their inputs to one another, either through a peer-to-peer topology or relayed via a simple server. Each client runs an identical, fully deterministic simulation of the game world. Provided that every client starts from the same initial state and processes the exact same sequence of inputs in the exact same order (at the same "tick"), their game states are guaranteed to remain perfectly synchronized.
 
-To ensure inputs are processed in the same order, the simulation proceeds in discrete turns. The game will not advance to the next turn until it has received the inputs from all players for that turn. To hide the latency of waiting for these inputs, games implementing this model introduce a fixed input delay, buffering inputs for a short period before executing them. This model's primary advantage is its extraordinary bandwidth efficiency concerning the number of game entities. Since only small input packets are transmitted, the network load scales with the number of players, not the number of units on screen, making it ideal for genres with potentially thousands of entities, such as Real-Time Strategy (RTS) games.
+To ensure inputs are processed in the same order, the simulation proceeds in discrete turns. The game will not advance to the next turn until it has received the inputs from all players for that turn. As depicted in @relatedlockstep, this means the entire simulation is forced to pause and wait for the slowest or most delayed participant. To hide the latency of waiting for these inputs, games implementing this model often introduce a fixed input delay, buffering inputs for a short period before executing them. This model's primary advantage is its extraordinary bandwidth efficiency concerning the number of game entities. Since only small input packets are transmitted, the network load scales with the number of players, not the number of units on screen, making it ideal for genres with potentially thousands of entities, such as Real-Time Strategy (RTS) games.
+
+#figure(
+  image("diagrams/related-lockstep.svg", width: 80%),
+  caption: [
+    Illustration of the lockstep model and its sensitivity to network conditions. (a) Client 1 processes its actions seamlessly. (b) Client 2 experiences a brief network interruption between Time 1 and Time 2, delaying its ability to provide input. (c) The server (or host) cannot advance its state (from State A to State B) until inputs from both Client 1 and Client 2 for the current frame are received. This forces the entire simulation to pause and wait for the slowest or most delayed participant.
+  ],
+) <relatedlockstep>
 
 === Analysis of Trade-Offs and Application
 
@@ -182,6 +197,13 @@ To bridge the gap between theory and implementation, this section examines the n
 
 The networking model of Valve's Source Engine, which powers titles like Half-Life 2 and Counter-Strike: Source, serves as a well-documented and highly influential example of the authoritative client-server architecture. Its documentation, made widely available to the modding and development community, has codified many of the foundational techniques discussed in this chapter. The engine simulates the game in discrete "ticks" on an authoritative server. Clients run prediction for the local player's movement to mask latency, and the server performs lag compensation to ensure fairness in hit registration by rewinding player history. The client also performs interpolation between received server snapshots to produce smooth motion for remote entities, deliberately rendering the world slightly in the past to ensure it always has valid states to interpolate between. The extensive set of user-configurable variables (cl_interp, cl_cmdrate, rate) allows for fine-tuning of the trade-offs between responsiveness and smoothness, exposing the underlying mechanics to the end-user. The Source Engine's networking model represents a robust, battle-tested blueprint for state synchronization in fast-paced first-person shooters. 
 
+#figure(
+  image("images/source-lag-compensation.png", width: 90%),
+  caption: [
+    A visual example of server-side lag compensation in the Source Engine. The red hitboxes represent a player's current (client-view) position, while the blue hitboxes show the rewound historical position that the server used for hit detection. This "favor the shooter" approach ensures that shots register based on what the attacker saw. 
+  ],
+)
+
 === Overwatch: Determinism in a High-Paced Shooter
 
 Blizzard Entertainment's Overwatch presents a more modern and novel architecture, as detailed in a GDC 2017 presentation by Timothy Ford. While it operates on an authoritative client-server model, it uniquely "leverages determinism to achieve responsiveness and precision". This represents a hybrid approach that synthesizes principles from both the state-sync and input-sync paradigms. The server runs the simulation at a fixed tick rate (typically 60Hz for competitive play) and is the final authority on game state. However, the simulation logic itself is deterministic. The client is able to run the exact same simulation code as the server.
@@ -215,7 +237,7 @@ The input representation captures the four directional keys that can be pressed 
 
 $
 f^"transform" ((i_"up", i_"down", i_"left", i_"right")) & = ((i_"down" - i_"up", i_"right" - i_"left")) \
-f^"find" ("id", S) & = x_P, quad x_P in {("id"', x') in S | "id" = "id"' } \
+f^"find" ("id", S) & = x_P, ("id", x_P) in S \
 f(s, i) & = {("id", s_p + f^"transform" (f^"find" ("id", i))) | ("id", s_p) in s}
 $
 
@@ -422,7 +444,7 @@ Consider a scenario with client $c_0$ controlling player $p_0$, with a round tri
 #table(
   columns: 6,
   align: (center, center, center, center, center, center),
-  [***Tick***], [***Server State***], [***Client Receives***], [***Client Input***], [***Predicted State***], [***Client Display***],
+  [*Tick*], [*Server State*], [*Client Receives*], [*Client Input*], [*Predicted State*], [*Client Display*],
   [$0$], [$(0,0), (5,5)$], [—], [—], [—], [$(0,0), (5,5)$],
   [$1$], [$(0,0), (5,5)$], [—], [—], [—], [$(0,0), (5,5)$],
   [$2$], [$(0,0), (5,5)$], [$(0,0), (5,5)$], [right], [$(1,0), (5,5)$], [$(1,0), (5,5)$],
@@ -453,12 +475,128 @@ Server reconciliation is the process of combining a past received state $s_t$ wi
 
 Unfortunately, since we have to rollback to the last received state, we must memorize all predictions we made. In the worst case, we memorize the whole $s_t$. When receiving $s_t$, we apply the prediction function $n_"predict"$ times. Therefore an input $i^c_t$ is predicted for the first time at $t - n_"predict"$ and the last time at $t$. So each input is processed by the client $n_"predict"$ times. This means that especially clients with longer ping have to do more processing, increasing with a smaller tick interval.
 
+==== Example of server reconciliation
+
+To illustrate server reconciliation with rollback, we examine how a client corrects prediction errors when receiving authoritative updates from the server. Consider our movement game with client $c_0$ controlling player $p_0$, with a round trip time of 100 ms (50 ms each direction) and a tick interval of 25 ms. This means the client must predict 4 ticks ahead ($n_"predict" = 100 / 25 = 4$) to maintain responsive gameplay.
+
+The client memorizes all inputs sent to the server that haven't been acknowledged yet. When a server update reveals a prediction error, the client rolls back to the last confirmed state and re-simulates all memorized inputs. This process is visualized in @model-rollback.
+
+Consider the following execution where player $p_1$ (controlled by another client) moves in a way the client cannot predict:
+
+#table(
+  columns: 7,
+  align: (center, center, center, center, center, center, center),
+  [*Tick*], [*Server State*], [*Client Receives*], [*Client Input*], [*Memorized*], [*Predicted State*], [*Display*],
+  [$0$], [$(0,0), (5,5)$], [—], [—], [[ ]], [—], [$(0,0), (5,5)$],
+  [$1$], [$(0,0), (5,5)$], [—], [—], [[ ]], [—], [$(0,0), (5,5)$],
+  [$2$], [$(0,0), (5,5)$], [$(0,0), (5,5)$], [right], [right], [$(1,0), (5,5)$], [$(1,0), (5,5)$],
+  [$3$], [$(0,0), (5,5)$], [$(0,0), (5,5)$], [right], [right, right], [$(2,0), (5,5)$], [$(2,0), (5,5)$],
+  [$4$], [$(1,0), (5,5)$], [$(0,0), (5,5)$], [up], [right, right, up], [$(2,1), (5,5)$], [$(2,1), (5,5)$],
+  [$5$], [$(2,0), (5,5)$], [$(0,0), (5,5)$], [up], [right, right, up, up], [$(2,2), (5,5)$], [$(2,2), (5,5)$],
+  [$6$], [$(2,1), (4,5)$], [$(1,0), (5,5)$], [stop], [right, up, up, stop], [*Rollback*], [—],
+  [$*$], [—], [—], [—], [—], [$(1,0), (5,5)$], [State after rollback],
+  [$*$], [—], [—], [—], [—], [$(2,0), (5,5)$], [Re-sim: right],
+  [$*$], [—], [—], [—], [—], [$(2,1), (5,5)$], [Re-sim: up],
+  [$*$], [—], [—], [—], [—], [$(2,2), (5,5)$], [Re-sim: up],
+  [$*$], [—], [—], [—], [[stop]], [$(2,2), (5,5)$], [$(2,2), (5,5)$],
+  [$7$], [$(2,2), (3,5)$], [$(2,0), (5,5)$], [stop], [up, up, stop, stop], [*Rollback*], [—],
+  [$*$], [—], [—], [—], [—], [$(2,0), (5,5)$], [State after rollback],
+  [$*$], [—], [—], [—], [—], [$(2,1), (5,5)$], [Re-sim: up],
+  [$*$], [—], [—], [—], [—], [$(2,2), (5,5)$], [Re-sim: up],
+  [$*$], [—], [—], [—], [—], [$(2,2), (5,5)$], [Re-sim: stop],
+  [$7$], [—], [—], [—], [[stop]], [$(2,2), (5,5)$], [$(2,2), (5,5)$],
+  [$8$], [$(2,2), (2,5)$], [$(2,1), (4,5)$], [left], [stop, stop, left], [*Rollback*], [—],
+)
+
+The table traces the execution of server reconciliation with rollback over 8 ticks, showing how the client maintains responsiveness through prediction while handling authoritative corrections from the server. The "Memorized" column tracks unacknowledged inputs retained for re-simulation, while rows marked with asterisks (\*) detail the internal rollback and re-simulation steps occurring within a single tick when discrepancies are detected.
+
+The critical reconciliation occurs at tick 6. The client has predicted player $p_0$ at position $(2,2)$ based on its "right, right, up, up" sequence, but the server state $(1,0), (5,5)$ reveals that only the first "right" input has been processed server-side. The rollback process, illustrated in @model-rollback, begins by reverting to the server's authoritative state $(1,0), (5,5)$. From this baseline, the client reconstructs its predicted state by re-applying all unacknowledged inputs in sequence: the second "right" transforming $(1,0)$ to $(2,0)$, two "up" inputs advancing through $(2,1)$ to $(2,2)$, and finally "stop" maintaining the position. The acknowledged first "right" is then removed from the memorized buffer.
+
+Following re-simulation, the client achieves state $(2,2), (5,5)$, where player $p_0$'s position matches the original prediction. This outcome is characteristic when prediction errors stem solely from other players' unpredictable movements. The reconciliation at tick 8 presents a more complex case where player $p_1$ has moved to $(4,5)$, introducing a persistent divergence.
+
+The computational implications of this approach become evident when considering the frequency and scope of re-simulation. Each server update necessitates re-processing all unacknowledged inputs, which in our configuration amounts to 4 inputs per reconciliation event. For clients experiencing higher latency, such as 200 ms round trip time, the re-simulation burden increases to 8 or more inputs per server update. This computational overhead scales linearly with latency, presenting a significant performance challenge that motivates the investigation of alternative reconciliation methods, particularly our proposed algebraic reconciliation approach which aims to eliminate the need for repeated re-simulation entirely.
+
+#figure(
+  image("diagrams/model-rollback-diagram.svg", width: 90%),
+  caption: [
+    Illustration of the rollback netcode process.
+    (a) The client's initial predicted state progression.
+    (b) The server's authoritative state diverges (State G instead of B).
+    (c) Upon receiving the authoritative State G, the client rolls back to State A, applies State G, and then re-simulates its subsequent inputs to reach States H and I.
+    (d) The server again processes inputs and generates a new authoritative State B, which differs from the client's expectation (G).
+    (e) The client performs another rollback, reverting to a prior known good state, applying the server's authoritative State B, and re-simulating all inputs to reach State C.
+    This demonstrates how rollback continuously adjusts the client's timeline by repeatedly re-computing future states (e.g., the state at time point 4 is computed multiple times) based on new authoritative information, ensuring eventual consistency.
+  ],
+) <model-rollback>
+
+
 === Delta State <delta-state>
 The host is sending the whole state $s_t$ each tick. This means we will send redundant data as the state rarely changes completely. We define delta states $Delta s_t in Delta S$ as changes in state which can be applied using a delta application function $f^A: S -> Delta S -> S$. We define an alternative progression function $f^Delta: I -> S -> Delta S$ returning a delta instead of the whole state and write $f^Delta (i_t, s_t) = Delta s_t$. We can derive the original progression function as $f(i_t, s_t) = f^A (s_t, f^Delta (i_t, s_t))$, therefore all our previous results hold true when using delta states. The other way around we can convert any normal state to delta state given progression function $f$ and state $S$ by defining $f^A = f$, $Delta S = S$ and $f^A (dot, s_t) = s_t$. This means, that in practice we can always implement delta state and use normal state on top.
 
 The host will each tick send $Delta s_(t + 1)$ to the clients. In the (fair) naive or lockstep model, a client has currently loaded a state $s_t$ and can simply use the delta application function to progress the state. Using rollback reconciliation, the client can use the delta application function after the rollback to $s_t$ and predict the actual state afterwards. If delta state can be used with the partial application reconciliation depends on the state and cannot be generalized because it is not possible to get back to a state $s_t$.
 
+==== Example of delta state
+
+To illustrate delta states, we extend our movement game to represent state changes rather than absolute positions. Instead of transmitting complete player positions each tick, we transmit only the changes (deltas) that occurred. This approach significantly reduces bandwidth requirements when players remain stationary or move predictably.
+
+We define delta states using the same vector space as our original game, but now representing position changes:
+
+$
+&"Vector " & V & subset.eq RR times RR & \
+&"Delta Player " & Delta P & = V \
+&"Delta State " & Delta S & subset.eq "id" times Delta P \
+$
+
+The delta application function combines a current state with a delta to produce the next state:
+
+$
+f^"find" ("id", s) & = cases(
+  s_p & "if" ("id", s_p) in s,
+  (0, 0) & "otherwise"
+) \
+f^A (s, Delta s) & = {("id", f^"find" ("id", s) + Delta p) | ("id", Delta p) in Delta s} \
+& quad union {("id", s_p) | ("id", s_p) in s and ("id", dot) in.not Delta s}
+$
+
+The delta progression function generates deltas from inputs rather than complete states:
+
+$
+f^"transform" ((i_"up", i_"down", i_"left", i_"right")) & = ((i_"down" - i_"up", i_"right" - i_"left")) \
+f^Delta (i, s) & = {("id", f^"transform" (i_p)) | ("id", i_p) in i}
+$
+
+Consider a concrete example where player $p_0$ moves diagonally while player $p_1$ remains stationary:
+
+$
+s_0 & = {(p_0, (3, 2)), (p_1, (5, 5))} \
+i_0 & = {(p_0, (1, 0, 0, 1)), (p_1, (0, 0, 0, 0))} \
+f^Delta (i_0, s_0) & = {(p_0, (1, 1)), (p_1, (0, 0))} = Delta s_0 \
+f^A (s_0, Delta s_0) & = {(p_0, (3, 2) + (1, 1)), (p_1, (5, 5) + (0, 0))} \
+& = {(p_0, (4, 3)), (p_1, (5, 5))} = s_1
+$
+
+The bandwidth advantage becomes apparent when examining the transmitted data. Without delta states, the server sends the complete state ${(p_0, (4, 3)), (p_1, (5, 5))}$ every tick. With delta states, it sends only ${(p_0, (1, 1))}$, omitting player $p_1$ entirely since their position unchanged (the zero delta $(0, 0)$ need not be transmitted). 
+
+In our simplified example with just two players possessing only position data, the bandwidth improvement appears modest—reducing transmission from two position vectors to one. However, this understates the significance of delta states in production games. Consider a typical real-time strategy game with thousands of units, each containing position, health, ammunition, animation states, and numerous other attributes. When only a handful of units move or engage in combat each tick while the vast majority remain idle at their posts, delta states eliminate the need to transmit any data for stationary units. A battlefield with 1000 units where only 50 are active reduces network traffic by 95%, transforming what would be an unmanageable bandwidth requirement into a feasible one. This optimization becomes even more critical for games with complex environmental objects, destructible terrain, or persistent world elements that rarely change but would otherwise require constant retransmission.
+
+This delta representation also naturally supports the identity element required for algebraic operations. The zero vector $(0, 0)$ serves as the identity: $f^A(s, emptyset) = s$, where the empty delta set represents no changes. This property becomes crucial for our algebraic reconciliation method, as it allows us to compose and decompose state changes algebraically.
+
 == Algebraic server reconciliation <algebraic-reconciliation>
+
+/*
+One of the major problems with classic methods is their computational complexity, which we have shown and explained already in the example of rollback reconciliation and their requirement for deterministic physics. Implementing rollback reconcilliation is very difficult as first the physics must determinstic, so that we can actually get the right results when resimulating. Second very subtle mistakes in implementation or ordering can make rollback not work or work incorrectly. This will then be noticated as jittering movement or weirdly behaving edge cases for the players.
+
+Therefore we now introduce a new method which is meant to make reconciliation easier as well as computationally cheaper.
+*/
+
+=== Overview
+/*
+The Abstract idea behind this method is inspired by CRDTs (conflict free replicated data types), a widely used technique in the software industry. The idea usually is that if you do not need strong consistency, you can achieve better availability by relaxing constraints. The intuition behind our approach is, that we trade of stronger consistency for better performance and less implementation overhead. Usually with crdts, the idea is to have any machine, usually called a replica, read and write these crdts. Thererefore they are constructed to be arbitrarily combined using a universal merge function. This is the conflict free data type part, since the merge function is meant as a univeral conflict resolver. 
+
+In our case the scenario is slightly different. We do not need to have any "replica" solve all the merge conflicts. Only the host has to solve the merge conflicts of all the clients. Therefore the idea is, that we compare changes computed by the server and the client, then adjust the client state accordingly. Because of the time discrapency, we are only able to analyze past client and server states. The advantage over rollback reconcilliation is won by not replaying any state logic, but only working with the saved and current state directly. 
+
+In short, similarly to CRDTs we define a merge. Additionally compared to CRDTs we also define a difference. Now we compute the difference between the server state and the client state. As explained, the moment we have this result, some time must have already passed, which is why we now merge the computed difference with the current client state. As we will see in the formal definition, we can using a single assumption, show that this method converges to the state at the server.
+*/
 
 === Definition
 
@@ -481,13 +619,29 @@ $
 
 Therefore we can reach any prediction $p^c_(t + d,t^r_c)$ over time. We call this reconciliation method algebraic server reconciliation.
 
-=== Abelian group for ECS games
+==== Example of Abelian Server Reconciliation
 
 === Limitations
 
-// - Does not work for games where things do not have an identity
-// - Does not work well if the base assumption is not met. => dependencies between predictions
-// 
+/*
+to derive our convergence we hat to make the assumption that $Delta p^c_(t,d) approx Delta p^c_(t + 1,d - 1)$. But what does that even mean? the assumptions says, that computed predictions should be mostly uncorrelated. that means, it does not matter what previous predictions have been, the next predictions will always be the same. This is the case especially for games where either many entities do not interact with each other heavily or the player controls mutliple different entities. when its not common to control the same entity twice, and the controlled entities do not heavily correlate with each other, but maybe with some other entities, we would have no problem. 
+
+one common example where this whole method is not well usable is in sandbox games as their nature is to let every entity interact with any other entity. one simple example where this can lead to problematic results is if another player causes one player to fall down. The problem is, that the state of falling or not falling changes the state of the next frame. therefore the prediction to fall or not to fall goes against the assumption we need. Therefore when the player falls, the system will never be able to correct for the actual positon the player should be at. It will always lag behind until the falling stops. 
+
+This is less pronounced in velocity in general, as velocity usually not changes drastically and if it changes, it most of the time the change in velocity is caused by the controlling player. Therefore there will be less failing predictions and errors to correct related to drastic changes in velocity. 
+*/
+
+=== Abelian group for ECS games
+
+/*
+For most games it is not difficult to define an abelian group for, as we will show here. To show this we will use the most commonly used way to structure and represent game state, the ECS. The general idea is that the game world consists of entities. Each entity can have or not have an component. Additionally there also exist system, which operate on the world but they are not relevant here as we only care about the definition of the game state in general.
+
+Each entity and type of component have unique identities in an ECS. Mathematically we present an ECS as a mapping from entity id to an entity, where an entity is an mapping from component type id to the component. To define an abelian group on this, we add another integer to this mapping, the multiplicity. Therefore the world is a mapping from entity id to an entity and the multiplicity. An entity is an mapping from an component type id to an component and its multiplicity. The abelian group is now defined recursively up to the components element wise, as well as the multiplicty. 
+
+The removal of an entity is indicated by a negative multiplicty. The addition by a positive multiplicty. A multiplicity of zero either indicates a change of an entity or an already removed entity. Using this technique we have defined arbitrary abelian groups for most common games.
+
+Include example of an simple ECS defined as an abelian group
+*/
 
 = Networking Architecture
 
@@ -672,6 +826,8 @@ By directly adjusting the predicted state through these well-behaved delta manip
 
 = Experiments
 
+
+
 = Discussion
 
 // - we have seen that not only there exist many networking approaches but also variations
@@ -710,3 +866,8 @@ By directly adjusting the predicted state through these well-behaved delta manip
 // be inspired by minecraft and send merkel trees of the state deltas to the server. the server can now decide which users
 // actually need state updates. games with big states could thereof save state transmission, which is most commonly correctly
 // predicted.
+
+/*
+- Since operating on deltas compared to full state has many advantages. Does operating on higher derivatives have even more advantages? This would solve the problem of falling or shooting things and the system would adjust.
+- We could instead of just adding the computed epsilon on top of the present, use a PID regulator to add it. The idea would be to reduce the amount of oscilliation in the system which is caused by overshooting errors.
+*/

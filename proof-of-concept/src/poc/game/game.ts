@@ -17,6 +17,11 @@ export interface GenericState {
 export interface AbelianGroup {
     add(left: GenericState, right: GenericState): GenericState
     neg(state: GenericState): GenericState
+    zero(): GenericState
+}
+
+export interface VectorSpace extends AbelianGroup {
+    scale(state: GenericState, scalar: number): GenericState
 }
 
 export interface GenericCompoundAction {
@@ -37,4 +42,5 @@ export interface Game {
     spawnPlayer(playerId: string): void
 
     abelianGroup(): AbelianGroup
+    vectorSpace(): VectorSpace
 }

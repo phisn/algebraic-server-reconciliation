@@ -7,7 +7,9 @@ import {
     Game,
     GenericAction,
     GenericCompoundAction,
+    GenericState,
     StateSymbol,
+    VectorSpace,
 } from "./game"
 
 export interface Action {
@@ -111,6 +113,30 @@ export class ButtonGame implements Game {
 
                 for (const id in state.players) {
                     result.players[id].value *= -1
+                }
+
+                return result
+            },
+            zero() {
+                const state: State = {
+                    type: StateSymbol,
+                    players: {},
+                }
+
+                return state as GenericState
+            },
+        }
+    }
+
+    public vectorSpace(): VectorSpace {
+        return {
+            ...this.abelianGroup(),
+            scale(_state, scalar) {
+                const state = _state as State
+                const result: State = deepcopy(state)
+
+                for (const id in state.players) {
+                    result.players[id].value *= scalar
                 }
 
                 return result

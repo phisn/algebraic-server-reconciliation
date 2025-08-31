@@ -11,8 +11,8 @@ import {
     ServerStrategy,
     Socket,
 } from "./networking/networking"
-import { AlgebraicNetworking } from "./networking/strategy-algebraic"
 import { OverrideNetworking } from "./networking/strategy-override"
+import { PIDNetworking } from "./networking/strategy-pid-algebraic"
 import { RollbackNetworking } from "./networking/strategy-rollback"
 
 export interface MemorySocketModifiers {
@@ -102,7 +102,7 @@ const NETWORKING_STRATEGIES = {
     algebraic: {
         name: "Algebraic",
         description: "Algebraic using abelian groups",
-        factory: () => new AlgebraicNetworking(),
+        factory: () => new PIDNetworking(),
     },
     rollback: {
         name: "Rollback",
