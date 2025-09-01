@@ -362,7 +362,7 @@ export function Sandbox() {
                                         new Scenario(
                                             () =>
                                                 new TopDown({
-                                                    static_entities_in_prediction: true,
+                                                    static_entities_in_prediction: false,
                                                 }),
                                             strategy,
                                             clientCount,

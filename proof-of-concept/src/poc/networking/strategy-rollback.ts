@@ -70,7 +70,7 @@ export class RollbackServerStrategy implements ServerStrategy {
 
             if (message) {
                 actions.actions[clientId] = message.action
-                this._clientTicks.set(socket.id(), this._clientTicks.get(socket.id())! + 1)
+                this._clientTicks.set(socket.id(), message.tick)
             }
         }
 
@@ -126,8 +126,12 @@ export class RollbackClientStrategy implements ClientStrategy {
         const newAction: GenericCompoundAction = { actions: {} }
 
         if (serverMessage) {
-            const removeUntil = this._actions.findIndex(([x]) => x <= serverMessage.clientTick)
-            this._actions.splice(0, removeUntil + 1)
+            const keepFromIndex = this._actions.findIndex(([x]) => x > serverMessage.clientTick)
+            if (keepFromIndex === -1) {
+                this._actions = []
+            } else {
+                this._actions.splice(0, keepFromIndex)
+            }
 
             this._game.setState(serverMessage.state)
 
@@ -135,11 +139,10 @@ export class RollbackClientStrategy implements ClientStrategy {
                 this._game.predict(action)
             }
 
-            newAction.actions = serverMessage.action.actions
+            // newAction.actions = serverMessage.action.actions
         }
 
         newAction.actions[this._socket.id()] = this._game.getInput()
-
         this._game.predict(newAction)
         this._actions.push([this._tick, newAction])
     }

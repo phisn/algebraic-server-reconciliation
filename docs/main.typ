@@ -208,7 +208,7 @@ The networking model of Valve's Source Engine, which powers titles like Half-Lif
 
 Blizzard Entertainment's Overwatch presents a more modern and novel architecture, as detailed in a GDC 2017 presentation by Timothy Ford. While it operates on an authoritative client-server model, it uniquely "leverages determinism to achieve responsiveness and precision". This represents a hybrid approach that synthesizes principles from both the state-sync and input-sync paradigms. The server runs the simulation at a fixed tick rate (typically 60Hz for competitive play) and is the final authority on game state. However, the simulation logic itself is deterministic. The client is able to run the exact same simulation code as the server.
 
-This design has significant benefits for client-side prediction. Because the client's simulation is identical to the server's, prediction errors are not caused by subtle divergences in physics or logic (e.g., floating-point inaccuracies). Instead, prediction errors arise only from a lack of information—namely, the inputs of other players that have not yet been received. When the server sends a correction, the client can reconcile its state with high confidence, knowing that the underlying simulation logic is sound. This hybrid model aims to achieve the predictive accuracy of a deterministic system within the responsive, cheat-resistant framework of an authoritative server. This signifies a convergence of the two historically separate paradigms, demonstrating that determinism is not an all-or-nothing architectural choice but can be employed as a powerful tool within a traditional client-server framework to dramatically improve the quality of prediction and reconciliation. The game's netcode also features an "adaptive interpolation delay" system, which attempts to dynamically adjust the rendering buffer based on network conditions to keep gameplay smooth.
+This design has significant benefits for client-side prediction. Because the client's simulation is identical to the server's, prediction errors are not caused by subtle divergences in physics or logic (e.g., floating-point inaccuracies). Instead, prediction errors arise only from a lack of information namely, the inputs of other players that have not yet been received. When the server sends a correction, the client can reconcile its state with high confidence, knowing that the underlying simulation logic is sound. This hybrid model aims to achieve the predictive accuracy of a deterministic system within the responsive, cheat-resistant framework of an authoritative server. This signifies a convergence of the two historically separate paradigms, demonstrating that determinism is not an all-or-nothing architectural choice but can be employed as a powerful tool within a traditional client-server framework to dramatically improve the quality of prediction and reconciliation. The game's netcode also features an "adaptive interpolation delay" system, which attempts to dynamically adjust the rendering buffer based on network conditions to keep gameplay smooth.
 
 = Network model <theory>
 
@@ -577,26 +577,31 @@ $
 
 The bandwidth advantage becomes apparent when examining the transmitted data. Without delta states, the server sends the complete state ${(p_0, (4, 3)), (p_1, (5, 5))}$ every tick. With delta states, it sends only ${(p_0, (1, 1))}$, omitting player $p_1$ entirely since their position unchanged (the zero delta $(0, 0)$ need not be transmitted). 
 
-In our simplified example with just two players possessing only position data, the bandwidth improvement appears modest—reducing transmission from two position vectors to one. However, this understates the significance of delta states in production games. Consider a typical real-time strategy game with thousands of units, each containing position, health, ammunition, animation states, and numerous other attributes. When only a handful of units move or engage in combat each tick while the vast majority remain idle at their posts, delta states eliminate the need to transmit any data for stationary units. A battlefield with 1000 units where only 50 are active reduces network traffic by 95%, transforming what would be an unmanageable bandwidth requirement into a feasible one. This optimization becomes even more critical for games with complex environmental objects, destructible terrain, or persistent world elements that rarely change but would otherwise require constant retransmission.
+In our simplified example with just two players possessing only position data, the bandwidth improvement appears modest reducing transmission from two position vectors to one. However, this understates the significance of delta states in production games. Consider a typical real-time strategy game with thousands of units, each containing position, health, ammunition, animation states, and numerous other attributes. When only a handful of units move or engage in combat each tick while the vast majority remain idle at their posts, delta states eliminate the need to transmit any data for stationary units. A battlefield with 1000 units where only 50 are active reduces network traffic by 95%, transforming what would be an unmanageable bandwidth requirement into a feasible one. This optimization becomes even more critical for games with complex environmental objects, destructible terrain, or persistent world elements that rarely change but would otherwise require constant retransmission.
 
 This delta representation also naturally supports the identity element required for algebraic operations. The zero vector $(0, 0)$ serves as the identity: $f^A(s, emptyset) = s$, where the empty delta set represents no changes. This property becomes crucial for our algebraic reconciliation method, as it allows us to compose and decompose state changes algebraically.
 
+Based on the comment and maintaining consistency with the thesis style, here's the text for the initial part of the "Algebraic server reconciliation" section:
+
 == Algebraic server reconciliation <algebraic-reconciliation>
 
-/*
-One of the major problems with classic methods is their computational complexity, which we have shown and explained already in the example of rollback reconciliation and their requirement for deterministic physics. Implementing rollback reconcilliation is very difficult as first the physics must determinstic, so that we can actually get the right results when resimulating. Second very subtle mistakes in implementation or ordering can make rollback not work or work incorrectly. This will then be noticated as jittering movement or weirdly behaving edge cases for the players.
+The reconciliation methods examined thus far, particularly rollback reconciliation, reveal significant implementation challenges and computational costs that limit their practical applicability. Rollback reconciliation demands deterministic physics simulation to ensure correct results during re-simulation a requirement that imposes substantial engineering constraints on game development. The simulation must produce bit-identical results across all re-simulation passes, precluding the use of many standard optimizations and requiring careful control over floating-point operations, random number generation, and execution order. Even subtle implementation errors in state management or input ordering can manifest as visible artifacts: jittering movement, rubber-banding effects, or inconsistent collision resolution that degrades the player experience.
 
-Therefore we now introduce a new method which is meant to make reconciliation easier as well as computationally cheaper.
-*/
+Beyond implementation complexity, the computational overhead of rollback reconciliation scales poorly with network latency. As demonstrated in our analysis, clients must re-simulate all unacknowledged inputs with each server update, performing $n_"predict"$ iterations of the progression function per reconciliation event. For clients with higher latency a common scenario in global multiplayer games this computational burden becomes prohibitive, particularly when multiple entities require prediction or when the progression function involves expensive physics calculations.
+
+These limitations motivate the development of an alternative reconciliation method that eliminates the need for re-simulation while maintaining the responsiveness benefits of client-side prediction. We now introduce algebraic server reconciliation, a novel approach that leverages the mathematical structure of delta states to compute corrections directly, transforming reconciliation from an iterative re-simulation process into a single algebraic operation. This method not only reduces computational complexity from $O(n_"predict")$ to $O(1)$ per reconciliation event but also removes the strict determinism requirement, significantly simplifying implementation and enabling broader applicability across diverse game architectures.
 
 === Overview
-/*
-The Abstract idea behind this method is inspired by CRDTs (conflict free replicated data types), a widely used technique in the software industry. The idea usually is that if you do not need strong consistency, you can achieve better availability by relaxing constraints. The intuition behind our approach is, that we trade of stronger consistency for better performance and less implementation overhead. Usually with crdts, the idea is to have any machine, usually called a replica, read and write these crdts. Thererefore they are constructed to be arbitrarily combined using a universal merge function. This is the conflict free data type part, since the merge function is meant as a univeral conflict resolver. 
 
-In our case the scenario is slightly different. We do not need to have any "replica" solve all the merge conflicts. Only the host has to solve the merge conflicts of all the clients. Therefore the idea is, that we compare changes computed by the server and the client, then adjust the client state accordingly. Because of the time discrapency, we are only able to analyze past client and server states. The advantage over rollback reconcilliation is won by not replaying any state logic, but only working with the saved and current state directly. 
+The theoretical foundation for algebraic server reconciliation draws inspiration from Conflict-Free Replicated Data Types (CRDTs), a well-established technique in distributed systems for achieving eventual consistency without coordination. CRDTs enable multiple replicas in a distributed system to independently modify shared data while guaranteeing convergence to a consistent state. This guarantee is achieved through carefully designed data structures and operations that possess specific algebraic properties particularly commutativity and associativity allowing updates to be applied in any order while producing the same final result. The merge function in CRDTs serves as a universal conflict resolver, automatically reconciling divergent states without requiring explicit coordination or consensus protocols.
 
-In short, similarly to CRDTs we define a merge. Additionally compared to CRDTs we also define a difference. Now we compute the difference between the server state and the client state. As explained, the moment we have this result, some time must have already passed, which is why we now merge the computed difference with the current client state. As we will see in the formal definition, we can using a single assumption, show that this method converges to the state at the server.
-*/
+However, the application context for networked games presents a fundamentally different topology than traditional CRDT deployments. In distributed databases or collaborative editing applications, CRDTs operate in a peer-to-peer model where any replica can generate updates and all replicas eventually converge through symmetric merge operations. In contrast, our client-server game architecture establishes an asymmetric relationship: the server maintains authoritative state while clients generate speculative predictions that must ultimately align with server decisions. This architectural distinction enables a more specialized approach than generic CRDTs would provide.
+
+Our method exploits this asymmetry by recognizing that reconciliation is inherently a client-side concern. The server never needs to reconcile it simply progresses the authoritative state based on received inputs. Only clients face the challenge of aligning their predicted states with authoritative updates. This insight allows us to design a reconciliation mechanism tailored specifically to the temporal dynamics of client-side prediction, where the fundamental problem is correcting a present predicted state based on past authoritative information.
+
+The core mechanism operates through two complementary algebraic operations. First, we define a difference operation that computes the discrepancy between the client's predicted delta and the server's authoritative delta for a given time period. This difference captures the prediction error in the form of a correction delta. Second, we employ a merge operation similar in spirit to CRDT merges but adapted for our temporal context that applies this correction delta to the client's current predicted state. Crucially, because of the inherent time delay between generating predictions and receiving authoritative updates, we cannot directly compare contemporaneous states. Instead, we compute corrections based on historical divergences and apply them to present states, relying on a key assumption about the temporal stability of predictions to ensure convergence.
+
+This approach transforms reconciliation from the computationally expensive process of re-simulating multiple frames of game logic into a direct algebraic computation. Where rollback reconciliation must replay $n_"predict"$ frames of potentially complex physics simulation, algebraic reconciliation performs a single difference calculation followed by a single merge operation. The formal properties ensuring convergence under this simplified model will be established through the mathematical framework presented in the following definition.
 
 === Definition
 
@@ -619,17 +624,72 @@ $
 
 Therefore we can reach any prediction $p^c_(t + d,t^r_c)$ over time. We call this reconciliation method algebraic server reconciliation.
 
+Based on the comment and maintaining consistency with the other examples in the thesis, here's the text for the "Example of Abelian Server Reconciliation" section:
+
 ==== Example of Abelian Server Reconciliation
+
+To demonstrate algebraic server reconciliation in practice, we must first establish the Abelian group structure for our movement game. Unlike previous examples that focused on state progression and prediction, this example requires defining the algebraic operations that enable direct correction computation without re-simulation.
+
+We define an Abelian group for our movement game using component-wise vector addition as the group operation. The identity element is the zero vector, and inverse elements are obtained through component-wise negation:
+
+$
+f^"find" ("id", s) & = cases(
+  s_p & "if" ("id", s_p) in s,
+  (0, 0) & "otherwise"
+) \
+f^"ids" (s) &= { "id" | ("id", *) in s} \
+s + s' &= { ("id", f^"find" ("id", s) + f^"find" ("id", s')) | "id" in f^"ids" (s union s')} \
+-s &= { ("id", -s_p) | ("id", s_p) in s} \
+e &= emptyset \
+$
+
+Consider client $c_0$ controlling player $p_0$ with 100 ms round trip time. Starting from state $s_0 = {(p_0, (0,0)), (p_1, (5,5))}$, the client sends a "right" input and immediately predicts the delta:
+
+$
+Delta p^c_0 = {(p_0, (1,0)), (p_1, (0,0))} 
+$
+
+The client applies this to display $(1,0), (5,5)$ immediately. Due to the 100 ms round trip time, the server won't process this input for 50 ms, and the acknowledgment won't return for another 50 ms. During this time, the client continues predicting, accumulating deltas in its memorized buffer.
+
+When the server's delta finally arrives, it might show:
+
+$
+Delta s = {(p_0, (1,0)), (p_1, (2,0))}
+$
+
+This confirms the client's prediction for $p_0$ but reveals that $p_1$ moved right by 2 units—information the client couldn't predict. The algebraic reconciliation computes the correction:
+
+$
+epsilon &= Delta s - Delta p^c_0 \
+&= {(p_0, (1,0)), (p_1, (2,0))} - {(p_0, (1,0)), (p_1, (0,0))} \
+&= {(p_0, (0,0)), (p_1, (2,0))}
+$
+
+This correction represents exactly what the client failed to predict: player $p_1$'s movement. The client applies this correction directly to its current predicted state without any re-simulation. If the client has since made additional predictions (say, moving up twice for a total displacement of $(0,2)$), its current displayed state might be $(1,2), (5,5)$. Applying the correction:
+
+$
+s_"corrected" &= s_"current" + epsilon \
+&= {(p_0, (1,2)), (p_1, (5,5))} + {(p_0, (0,0)), (p_1, (2,0))} \
+&= {(p_0, (1,2)), (p_1, (7,5))}
+$
+
+The key insight is that this correction happens in constant time through a single vector addition, regardless of how many predictions were made since the server state was generated. Rollback reconciliation would need to return to state $s_0$, apply the server's update to get $(1,0), (7,5)$, then re-simulate the two "up" inputs to reach $(1,2), (7,5)$. Algebraic reconciliation achieves the same result directly.
+
+This efficiency gain becomes more pronounced with higher latency. A client with 200 ms round trip time would need to maintain and potentially re-simulate 8 ticks of predictions with rollback. With algebraic reconciliation, it still performs just one correction operation. Furthermore, the method tolerates non-deterministic physics—as long as the delta operations maintain their algebraic properties, the correction converges correctly even if the exact simulation differs between client and server.
 
 === Limitations
 
-/*
-to derive our convergence we hat to make the assumption that $Delta p^c_(t,d) approx Delta p^c_(t + 1,d - 1)$. But what does that even mean? the assumptions says, that computed predictions should be mostly uncorrelated. that means, it does not matter what previous predictions have been, the next predictions will always be the same. This is the case especially for games where either many entities do not interact with each other heavily or the player controls mutliple different entities. when its not common to control the same entity twice, and the controlled entities do not heavily correlate with each other, but maybe with some other entities, we would have no problem. 
+The convergence proof for algebraic server reconciliation relies on a critical assumption: $Delta p^c_(t,d) approx Delta p^c_(t+1,d-1)$. This assumption requires that predictions remain temporally stable, meaning the delta produced by predicting from state $s_t$ at time $d$ should closely match the delta produced by predicting from state $s_(t+1)$ at time $d-1$. In essence, this assumes that the prediction function exhibits minimal sensitivity to variations in the base state from which predictions originate.
 
-one common example where this whole method is not well usable is in sandbox games as their nature is to let every entity interact with any other entity. one simple example where this can lead to problematic results is if another player causes one player to fall down. The problem is, that the state of falling or not falling changes the state of the next frame. therefore the prediction to fall or not to fall goes against the assumption we need. Therefore when the player falls, the system will never be able to correct for the actual positon the player should be at. It will always lag behind until the falling stops. 
+This temporal stability assumption holds well for games where entities operate relatively independently and player control switches frequently between different entities. Consider a real-time strategy game where a player commands hundreds of units. Each unit's movement prediction depends primarily on its own state and the player's direct commands, with minimal influence from other units' positions. When the player issues a move command to unit A, then immediately switches attention to unit B, the predictions for unit A remain consistent regardless of minor corrections to unit B's state. The decorrelation between controlled entities ensures that prediction errors in one entity do not cascade into prediction errors for others.
 
-This is less pronounced in velocity in general, as velocity usually not changes drastically and if it changes, it most of the time the change in velocity is caused by the controlling player. Therefore there will be less failing predictions and errors to correct related to drastic changes in velocity. 
-*/
+However, this assumption breaks down in games with strong state dependencies and persistent entity control. Sandbox games exemplify this limitation through their fundamental design philosophy: every entity can interact with any other entity in complex, emergent ways. Consider a scenario where player $p_1$ pushes player $p_0$ off a ledge. The falling state fundamentally alters the prediction function's behavior: a falling player accelerates downward each tick, while a grounded player remains stationary. If the client fails to predict the initial push, it continues predicting $p_0$ as stationary while the server simulates falling. The algebraic correction $epsilon = Delta s - Delta p$ captures only the position discrepancy for that specific tick, not the change in falling state. Consequently, the client's prediction continues using the wrong dynamics, generating increasingly large errors that the algebraic correction cannot fully resolve. The system perpetually lags behind the true state until the falling motion ceases and both client and server return to similar dynamics.
+
+This limitation extends to any game mechanic involving state-dependent dynamics. Projectile physics present another challenging case: a bullet's trajectory depends on its velocity vector, which changes due to gravity and air resistance. If the client mispredicts the initial firing angle by even a small amount, the entire subsequent trajectory diverges. The algebraic correction can adjust the bullet's position but cannot correct the underlying velocity error that continues to compound. Similarly, vehicle physics with momentum, sliding mechanics on ice, or even simple acceleration-based movement all violate the temporal stability assumption to varying degrees.
+
+The severity of these limitations correlates inversely with the frequency of state-altering interactions. Games where velocity changes occur primarily through direct player control exhibit better convergence properties because the controlling player's inputs naturally align the predicted and actual dynamics. When a player accelerates their character, both client and server process the same acceleration input, maintaining synchronized dynamics despite potential position discrepancies. Problems arise when external forces, especially those from other players or environmental hazards, alter an entity's dynamic state in ways the client cannot predict.
+
+These limitations do not render algebraic reconciliation unusable but rather define its domain of applicability. The method excels in games with discrete, position-based movement, sparse entity interactions, and minimal state-dependent dynamics. For games outside this domain, hybrid approaches that combine algebraic reconciliation for suitable state components with rollback reconciliation for problematic components may offer the best compromise between computational efficiency and correctness.
 
 === Abelian group for ECS games
 
