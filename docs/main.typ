@@ -693,15 +693,84 @@ These limitations do not render algebraic reconciliation unusable but rather def
 
 === Abelian group for ECS games
 
-/*
-For most games it is not difficult to define an abelian group for, as we will show here. To show this we will use the most commonly used way to structure and represent game state, the ECS. The general idea is that the game world consists of entities. Each entity can have or not have an component. Additionally there also exist system, which operate on the world but they are not relevant here as we only care about the definition of the game state in general.
+Entity Component System (ECS) architectures have become the predominant method for organizing game state in modern engines. The compositional nature of ECS, where entities are defined by their collection of components rather than through inheritance hierarchies, naturally aligns with the algebraic structures required for our reconciliation method. We now demonstrate how to construct an Abelian group for arbitrary ECS-based games, providing a general framework that developers can adapt to their specific implementations.
 
-Each entity and type of component have unique identities in an ECS. Mathematically we present an ECS as a mapping from entity id to an entity, where an entity is an mapping from component type id to the component. To define an abelian group on this, we add another integer to this mapping, the multiplicity. Therefore the world is a mapping from entity id to an entity and the multiplicity. An entity is an mapping from an component type id to an component and its multiplicity. The abelian group is now defined recursively up to the components element wise, as well as the multiplicty. 
+In an ECS architecture, the game world consists of entities, each possessing a unique identifier. Entities are containers for components, where each component type stores specific data (position, health, inventory, etc.). Systems operate on entities possessing specific component combinations, but for state representation purposes, we focus solely on the entity-component data structure.
 
-The removal of an entity is indicated by a negative multiplicty. The addition by a positive multiplicty. A multiplicity of zero either indicates a change of an entity or an already removed entity. Using this technique we have defined arbitrary abelian groups for most common games.
+We formalize an ECS game state as a nested mapping with multiplicities:
 
-Include example of an simple ECS defined as an abelian group
-*/
+$
+"World" &: "EntityID" -> ("Entity", ZZ) \
+"Entity" &: "ComponentTypeID" -> ("Component", ZZ)
+$
+
+The integer multiplicities serve a dual purpose. For entities, positive multiplicity indicates creation or presence, negative multiplicity indicates deletion, and zero represents either modification or an already-deleted entity. For components, multiplicities similarly track additions, removals, and modifications. This multiplicity-based representation naturally encodes state changes as part of the state structure itself.
+
+The Abelian group operation combines worlds by summing multiplicities:
+
+$
+(W_1 + W_2)["id"_e] = cases(
+  (E_1 + E_2, m_1 + m_2) & "if" "id"_e in W_1 "and" "id"_e in W_2,
+  W_1["id"_e] & "if" "id"_e in W_1 "and" "id"_e in.not W_2,
+  W_2["id"_e] & "if" "id"_e in.not W_1 "and" "id"_e in W_2,
+  "undefined" & "otherwise"
+)
+$
+
+Where entity addition is defined recursively through component addition:
+
+$
+(E_1 + E_2)["id"_c] = cases(
+  (C_1 + C_2, m_1 + m_2) & "if" "id"_c in E_1 "and" "id"_c in E_2,
+  E_1["id"_c] & "if" "id"_c in E_1 "and" "id"_c in.not E_2,
+  E_2["id"_c] & "if" "id"_c in.not E_1 "and" "id"_c in E_2,
+  "undefined" & "otherwise"
+)
+$
+
+Component addition must be defined specifically for each component type. For vector positions, we use vector addition. For scalar health values, we use arithmetic addition. For discrete states, we might use replacement semantics where the component with higher absolute multiplicity takes precedence.
+
+Consider a concrete example with two entity types in a simplified game:
+
+$
+"PositionComponent" &= RR times RR \
+"HealthComponent" &= ZZ \
+"Player" &= {"Position": "PositionComponent", "Health": "HealthComponent"} \
+"Projectile" &= {"Position": "PositionComponent"}
+$
+
+A world state might be:
+
+$
+W_0 = {
+  e_1: ({&"Position": ((5, 3), 1), \
+       &"Health": (100, 1)}, 1), \
+  e_2: ({&"Position": ((10, 7), 1)}, 1)
+}
+$
+
+A delta representing player movement and damage might be:
+
+$
+Delta W = {
+  e_1: ({&"Position": ((2, 0), 1), \
+       &"Health": ((-10), 1)}, 0)
+}
+$
+
+Applying this delta yields:
+
+$
+W_1 = W_0 + Delta W = {
+  e_1: ({&"Position": ((7, 3), 1), \
+       &"Health": (90, 1)}, 1), \
+  e_2: ({&"Position": ((10, 7), 1)}, 1)
+}
+$
+
+The identity element is the empty world mapping $emptyset$, and the inverse of any world is obtained by negating all multiplicities and component values. These operations satisfy the Abelian group axioms: closure (combining two ECS states yields another valid ECS state), associativity (the order of combining multiple deltas doesn't matter), commutativity (deltas can be applied in any order), identity (adding an empty delta changes nothing), and inverse (every delta can be undone).
+
+This formalization provides a systematic approach to implementing algebraic reconciliation for any ECS-based game. Developers need only define appropriate addition operations for their specific component types, and the framework handles the compositional structure automatically. The multiplicity-based approach elegantly captures the full lifecycle of entities and components, from creation through modification to deletion, within a unified algebraic structure.
 
 = Networking Architecture
 
