@@ -1,5 +1,5 @@
 import { Navigate, Route, BrowserRouter as Router, Routes } from "react-router"
-import { Experiments } from "./poc/Experiment"
+import { Experiments } from "./poc/Experiments"
 import { Sandbox } from "./poc/Sandbox"
 
 function App() {

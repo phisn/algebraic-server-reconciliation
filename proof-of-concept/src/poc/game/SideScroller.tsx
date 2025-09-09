@@ -5,6 +5,7 @@ import { JSX, useContext, useEffect, useRef, useSyncExternalStore } from "react"
 import {
     AbelianGroup,
     ActionSymbol,
+    Experiment,
     FocusContext,
     Game,
     GenericAction,
@@ -13,6 +14,8 @@ import {
     StateSymbol,
     VectorSpace,
 } from "./game"
+
+export const experiments: Experiment[] = []
 
 export interface Action {
     type: typeof ActionSymbol

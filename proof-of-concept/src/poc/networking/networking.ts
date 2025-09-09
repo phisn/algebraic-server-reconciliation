@@ -25,7 +25,8 @@ export interface ServerStrategy {
 }
 
 export interface ClientStrategy {
+    getId(): string
     getInput(): GenericAction
     render(): JSX.Element
-    update(): void
+    update(input: GenericAction): void
 }

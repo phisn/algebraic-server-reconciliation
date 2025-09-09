@@ -5,6 +5,7 @@ import { JSX, useContext, useEffect, useRef, useSyncExternalStore } from "react"
 import {
     AbelianGroup,
     ActionSymbol,
+    Experiment,
     FocusContext,
     Game,
     GenericAction,
@@ -13,6 +14,138 @@ import {
     StateSymbol,
     VectorSpace,
 } from "./game"
+
+export const walls: Record<string, Wall> = {
+    "wall-1": {
+        x: 0,
+        y: -300,
+        width: 550,
+        height: 50,
+    },
+    "wall-2": {
+        x: 0,
+        y: 300,
+        width: 550,
+        height: 50,
+    },
+    "wall-3": {
+        x: -250,
+        y: 0,
+        width: 50,
+        height: 600,
+    },
+    "wall-4": {
+        x: 250,
+        y: 0,
+        width: 50,
+        height: 600,
+    },
+}
+
+export const experiments: Experiment[] = [
+    {
+        name: "Observe x in collision",
+        inputs: {
+            "player-1": Array.from({ length: 60 * 3 }).map(
+                () => ({ type: ActionSymbol, move: "right" }) satisfies Action as GenericAction,
+            ),
+            "player-2": Array.from({ length: 60 * 3 }).map(
+                () => ({ type: ActionSymbol, move: "left" }) satisfies Action as GenericAction,
+            ),
+        },
+        observe: "players.player-1.x",
+        length: 60 * 3,
+        state: {
+            type: StateSymbol,
+            players: {
+                "player-1": {
+                    radius: 25,
+                    vx: 5,
+                    vy: 0,
+                    x: -200,
+                    y: 150,
+                },
+                "player-2": {
+                    radius: 25,
+                    vx: -5,
+                    vy: 0,
+                    x: 200,
+                    y: 140,
+                },
+            },
+            walls,
+        } satisfies State as GenericState,
+    },
+    {
+        name: "Observe y in collision",
+        inputs: {
+            "player-1": Array.from({ length: 60 * 5 }).map(
+                () => ({ type: ActionSymbol, move: "right" }) satisfies Action as GenericAction,
+            ),
+            "player-2": Array.from({ length: 60 * 5 }).map(
+                () => ({ type: ActionSymbol, move: "left" }) satisfies Action as GenericAction,
+            ),
+        },
+        observe: "players.player-1.y",
+        length: 60 * 3,
+        state: {
+            type: StateSymbol,
+            players: {
+                "player-1": {
+                    radius: 25,
+                    vx: 5,
+                    vy: 0,
+                    x: -200,
+                    y: 150,
+                },
+                "player-2": {
+                    radius: 25,
+                    vx: -5,
+                    vy: 0,
+                    x: 200,
+                    y: 140,
+                },
+            },
+            walls,
+        } satisfies State as GenericState,
+    },
+
+    {
+        name: "Observe y in collision",
+        inputs: {
+            "player-1": Array.from({ length: 60 * 2 }).map((_, i) =>
+                i % 30 > 15
+                    ? ({ type: ActionSymbol, move: "right" } satisfies Action as GenericAction)
+                    : ({ type: ActionSymbol, move: "down" } satisfies Action as GenericAction),
+            ),
+            "player-2": Array.from({ length: 60 * 2 }).map(
+                () => ({ type: ActionSymbol }) satisfies Action as GenericAction,
+            ),
+        },
+        observe: "players.player-1.y",
+        length: 60 * 2,
+        state: {
+            type: StateSymbol,
+            players: {
+                "player-1": {
+                    radius: 25,
+                    vx: 5,
+                    vy: 0,
+                    x: -200,
+                    y: 150,
+                },
+                "player-2": {
+                    radius: 25,
+                    vx: 0,
+                    vy: 0,
+                    x: 200,
+                    y: 50,
+                },
+            },
+            walls,
+        } satisfies State as GenericState,
+    },
+]
 
 export interface Action {
     type: typeof ActionSymbol
@@ -381,6 +514,9 @@ export class TopDown implements Game {
         } else if (action.move === "down") {
             vy = -speed
         }
+
+        console.log(player)
+        console.log(playerId)
 
         player.vx = vx
         player.vy = vy

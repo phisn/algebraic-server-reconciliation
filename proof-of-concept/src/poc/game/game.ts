@@ -44,3 +44,12 @@ export interface Game {
     abelianGroup(): AbelianGroup
     vectorSpace(): VectorSpace
 }
+
+export interface Experiment {
+    name: string
+
+    inputs: Record<string, GenericAction[]>
+    length: number
+    observe: string
+    state: GenericState
+}

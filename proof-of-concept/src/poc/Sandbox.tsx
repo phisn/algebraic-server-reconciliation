@@ -11,8 +11,8 @@ import {
     ServerStrategy,
     Socket,
 } from "./networking/networking"
+import { AlgebraicNetworking } from "./networking/strategy-algebraic"
 import { OverrideNetworking } from "./networking/strategy-override"
-import { PIDNetworking } from "./networking/strategy-pid-algebraic"
 import { RollbackNetworking } from "./networking/strategy-rollback"
 
 export interface MemorySocketModifiers {
@@ -87,7 +87,7 @@ export class Scenario {
 
     public update() {
         this._server.update()
-        this._clients.forEach(client => client.update())
+        this._clients.forEach(client => client.update(client.getInput()))
     }
 
     public views() {
@@ -102,7 +102,7 @@ const NETWORKING_STRATEGIES = {
     algebraic: {
         name: "Algebraic",
         description: "Algebraic using abelian groups",
-        factory: () => new PIDNetworking(),
+        factory: () => new AlgebraicNetworking(),
     },
     rollback: {
         name: "Rollback",

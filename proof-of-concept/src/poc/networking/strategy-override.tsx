@@ -77,6 +77,10 @@ export class OverrideClientStrategy implements ClientStrategy {
         private _socket: Socket,
     ) {}
 
+    getId(): string {
+        return this._socket.id()
+    }
+
     getInput(): GenericAction {
         return this._game.getInput()
     }
@@ -85,10 +89,10 @@ export class OverrideClientStrategy implements ClientStrategy {
         return this._game.render()
     }
 
-    update(): void {
+    update(action: GenericAction): void {
         const message: ClientMessage = {
             type: MessageSymbol,
-            action: this._game.getInput(),
+            action,
         }
 
         this._socket.send(message)

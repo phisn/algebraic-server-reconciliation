@@ -104,6 +104,10 @@ export class RollbackClientStrategy implements ClientStrategy {
         this._tick = 0
     }
 
+    getId(): string {
+        return this._socket.id()
+    }
+
     getInput(): GenericAction {
         return this._game.getInput()
     }
@@ -112,12 +116,12 @@ export class RollbackClientStrategy implements ClientStrategy {
         return this._game.render()
     }
 
-    update(): void {
+    update(action: GenericAction): void {
         this._tick++
 
         const message: ClientMessage = {
             type: MessageSymbol,
-            action: this._game.getInput(),
+            action,
             tick: this._tick,
         }
         this._socket.send(message)
@@ -142,7 +146,7 @@ export class RollbackClientStrategy implements ClientStrategy {
             // newAction.actions = serverMessage.action.actions
         }
 
-        newAction.actions[this._socket.id()] = this._game.getInput()
+        newAction.actions[this._socket.id()] = action
         this._game.predict(newAction)
         this._actions.push([this._tick, newAction])
     }

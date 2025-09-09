@@ -4,6 +4,7 @@ import { GenericMessage, Socket } from "./networking"
 export interface MemorySocketModifiers {
     // Delay in number of packets
     delay: number
+    id?: string
 }
 
 export class MemorySocket implements Socket {
@@ -19,7 +20,7 @@ export class MemorySocket implements Socket {
     }
 
     static pair(modifiers: MemorySocketModifiers): [Socket, Socket] {
-        const id = Math.random().toString(36).substring(2, 15)
+        const id = modifiers.id ?? Math.random().toString(36).substring(2, 15)
 
         const l: GenericMessage[] = []
         const r: GenericMessage[] = []

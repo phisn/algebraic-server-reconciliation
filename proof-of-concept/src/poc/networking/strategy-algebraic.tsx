@@ -128,6 +128,10 @@ export class AlgebraicClientStrategy implements ClientStrategy {
         this._tick = 0
     }
 
+    getId(): string {
+        return this._socket.id()
+    }
+
     getInput(): GenericAction {
         return this._game.getInput()
     }
@@ -136,12 +140,12 @@ export class AlgebraicClientStrategy implements ClientStrategy {
         return this._game.render()
     }
 
-    update(): void {
+    update(action: GenericAction): void {
         this._tick++
 
         const message: ClientMessage = {
             type: MessageSymbol,
-            action: this._game.getInput(),
+            action,
             tick: this._tick,
         }
         this._socket.send(message)
@@ -174,7 +178,7 @@ export class AlgebraicClientStrategy implements ClientStrategy {
         }
 
         this._game.setState(state)
-        this._game.predict({ actions: { [this._socket.id()]: this._game.getInput() } })
+        this._game.predict({ actions: { [this._socket.id()]: action } })
         this._states[this._tick] = this._abelian.add(
             this._game.getState(),
             this._abelian.neg(state),
