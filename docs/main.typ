@@ -1,7 +1,6 @@
 #import "@preview/athena-tu-darmstadt-thesis:0.1.1": *
 #import "@preview/lilaq:0.5.0" as lq
 
-
 // setup the template
 #show: tudapub.with(
   title: [
@@ -18,7 +17,11 @@
   accentcolor: "9c",
 
   abstract: [
-    This is a template to write your thesis with the corporate design of #link("https://www.tu-darmstadt.de/")[TU Darmstadt].
+    Real-time networked multiplayer games must maintain a consistent game state across clients despite network latency. The predominant solution, client-side prediction with rollback reconciliation, provides responsiveness by speculatively simulating player actions and then correcting mispredictions by re-simulating from authoritative server states. This approach, while effective, imposes significant computational overhead that scales linearly (O(n)) with the number of frames requiring re-simulation.
+
+    This thesis introduces algebraic server reconciliation, a novel method that eliminates this re-simulation overhead. By representing state changes as elements of an Abelian group, our method enables the direct algebraic correction of predicted states through a single mathematical operation, reducing computational complexity to constant time (O(1)) per reconciliation event. We provide a formal framework for constructing suitable Abelian groups for Entity Component System (ECS) architectures and prove the method's convergence.
+
+    Experimental evaluation demonstrates that algebraic reconciliation achieves synchronization quality comparable to rollback for position-based movement. While the method exhibits characteristic overcorrection artifacts during complex physics interactions that violate its underlying assumptions, performance analysis confirms the elimination of re-simulation overhead. Our work adapts concepts from Conflict-Free Replicated Data Types (CRDTs) to client-server game architectures, offering a computationally efficient alternative for genres such as MOBAs, RTS games, and large-scale battle royales where its mathematical assumptions align with gameplay mechanics.
   ],
 
   bib: bibliography("refs.bib", full: true),
@@ -66,13 +69,19 @@
 
 = Introduction
 
-/*
-- short history of multiplayer games
-- relevance of gaming in today world
-- relevance of multiplayer games compared to gaming
-- what is AR and VR =>
-- how multiplayer capabilities are fundamental to the metaverse
-*/
+The rise of online multiplayer gaming has transformed interactive entertainment, connecting millions of players in shared virtual worlds. This transformation, however, introduces a fundamental technical challenge: the physical reality of network latency. When a player in Berlin battles an opponent in Tokyo, their actions must traverse thousands of kilometers of network infrastructure, introducing delays that can render fast-paced games unplayable if not properly mitigated.
+
+The challenge is not merely technical but experiential. Modern players expect instantaneous response to their inputs, yet in a networked environment, this expectation conflicts with the need for consistency across all players. This tension has driven the development of sophisticated synchronization techniques to hide or compensate for the irreducible reality of network latency.
+
+The current industry standard, client-side prediction with rollback reconciliation, represents an elegant but computationally expensive solution. Clients optimistically predict the results of their actions for immediate visual feedback. When the server's response reveals a misprediction, inevitable when clients lack complete information, the client "rolls back" its state and re-simulates all intervening frames with the corrected information. This approach successfully maintains both responsiveness and eventual consistency, but at a cost: the computational burden of repeated simulation increases linearly with network latency. This overhead is particularly problematic for mobile devices with limited battery and thermal budgets, and for cloud gaming platforms operating at a massive scale.
+
+This thesis presents algebraic server reconciliation, a novel approach to state synchronization that maintains the responsiveness of client-side prediction while eliminating the computational overhead of re-simulation. Our key insight is that by representing game state changes as elements of an Abelian group, a mathematical structure with well-defined properties of composition and inversion, we can compute corrections directly through algebraic operations rather than repeated simulation. When a client receives an authoritative server update, instead of rolling back and re-simulating, it computes a single correction delta that transforms its current predicted state toward convergence with the server.
+
+Our approach draws inspiration from Conflict-Free Replicated Data Types (CRDTs), a technique from distributed systems that leverages algebraic properties to ensure eventual consistency. However, unlike CRDTs which typically handle peer-to-peer updates, we exploit the authoritative server topology common in games to relax requirements and support a broader class of operations.
+
+The primary contributions of this thesis are threefold. First, we introduce the algebraic server reconciliation method with formal proofs of convergence and complexity analysis. Second, we provide a comprehensive formalization of game networking concepts that enables rigorous comparison between different synchronization approaches. Third, we present experimental validation using custom-built test games that reveals both the strengths and limitations of our method under various gameplay scenarios.
+
+Through this investigation, we demonstrate that algebraic server reconciliation offers a viable alternative to traditional rollback for a significant class of multiplayer games. While not universally applicable, certain game mechanics violate its underlying assumptions, the technique provides valuable benefits where its requirements align with gameplay design. By expanding the palette of synchronization techniques, this work contributes to the ongoing evolution of networked interactive entertainment.
 
 = Related Work
 
@@ -88,7 +97,7 @@ To mitigate perceived latency, modern games hide delay rather than remove it. We
 
 === The Authoritative Server and the Challenge of Latency
 
-The predominant architecture for modern multiplayer games is the client-server model, wherein a single server is designated as the authoritative source of truth for the game state. Clients send user inputs to the server and, in return, receive periodic updates, or "snapshots," of the world state. This model centralizes simulation and prevents many forms of cheating, as the client is never fully trusted with game-critical logic. However, it introduces the fundamental problem of network latency: the round-trip time (RTT), illustrated in @rttdiagram, which is the total time it takes for a client's input to reach the server and for the server's response to return. For fast-paced action games, where delays of even a few milliseconds can be perceptible, this latency renders a naive implementation unplayable, as there would be a significant delay between a player's action and its visual feedback. The following sections detail the primary techniques developed to conceal or compensate for this inherent latency.
+The predominant architecture for modern multiplayer games is the client-server model, wherein a single server is designated as the authoritative source of truth for the game state. Clients send user inputs to the server and, in return, receive periodic updates, or "snapshots," of the world state. This model centralizes simulation and prevents many forms of cheating, as the client is never fully trusted with game-critical logic. However, it introduces the fundamental problem of network latency: the round-trip time (RTT), illustrated in @fig:rttdiagram, which is the total time it takes for a client's input to reach the server and for the server's response to return. For fast-paced action games, where delays of even a few milliseconds can be perceptible, this latency renders a naive implementation unplayable, as there would be a significant delay between a player's action and its visual feedback. The following sections detail the primary techniques developed to conceal or compensate for this inherent latency.
 
 #figure(
   image("diagrams/related-work-latency-diagram.svg", width: 80%),
@@ -99,7 +108,7 @@ The predominant architecture for modern multiplayer games is the client-server m
 
 === Client-Side Prediction and Server Reconciliation
 
-To combat the feeling of unresponsiveness, the most widely adopted technique is Client-Side Prediction. The client does not wait for the server's confirmation to execute a local player's command. Instead, it speculatively executes the input and simulates the outcome locally, providing immediate visual feedback. This creates the illusion of a zero-latency environment for the local player's movement and actions. The earliest known implementation in a first-person shooter was in Duke Nukem 3D (1996), as shown in @dukenukem, with the technique being popularized by id Software's QuakeWorld. @quakeworld-prediction
+To combat the feeling of unresponsiveness, the most widely adopted technique is Client-Side Prediction. The client does not wait for the server's confirmation to execute a local player's command. Instead, it speculatively executes the input and simulates the outcome locally, providing immediate visual feedback. This creates the illusion of a zero-latency environment for the local player's movement and actions. The earliest known implementation in a first-person shooter was in Duke Nukem 3D (1996), as shown in @fig:dukenukem, with the technique being popularized by id Software's QuakeWorld. @quakeworld-prediction
 
 #figure(
   image("images/duke-nukem-3d.png", width: 80%),
@@ -112,7 +121,7 @@ This speculative execution, however, introduces the problem of divergence. The c
 
 === Rollback Netcode
 
-Rollback netcode can be understood as a more aggressive and generalized application of the principles of prediction and reconciliation, primarily developed to meet the stringent timing requirements of fighting games. While traditional client-side prediction is typically applied only to the local player, rollback netcode predicts the inputs of the remote player as well, often by assuming they will repeat their last known input. The game simulation for all players advances based on these local and predicted inputs. When an actual input from the remote player arrives, the game state is 'rolled back' to the frame before the prediction began, the correct input is inserted, and the simulation is 'fast-forwarded' back to the present time. This multi-step correction process is visualized in @rollbackcomparison. The entire rollback and re-simulation ideally occurs within a single frame, making the correction imperceptible to the user.
+Rollback netcode can be understood as a more aggressive and generalized application of the principles of prediction and reconciliation, primarily developed to meet the stringent timing requirements of fighting games. While traditional client-side prediction is typically applied only to the local player, rollback netcode predicts the inputs of the remote player as well, often by assuming they will repeat their last known input. The game simulation for all players advances based on these local and predicted inputs. When an actual input from the remote player arrives, the game state is 'rolled back' to the frame before the prediction began, the correct input is inserted, and the simulation is 'fast-forwarded' back to the present time. This multi-step correction process is visualized in @fig:rollbackcomparison. The entire rollback and re-simulation ideally occurs within a single frame, making the correction imperceptible to the user.
 
 #figure(
   image("diagrams/related-rollback-diagram.svg", width: 90%),
@@ -124,7 +133,7 @@ Rollback netcode can be understood as a more aggressive and generalized applicat
   ],
 ) <rollbackcomparison>
 
-The primary benefit is a highly responsive experience that feels akin to offline play, even under significant latency. However, the implementation is complex, requiring the ability to save and load the complete game state very rapidly for every frame and to re-simulate multiple frames' worth of logic in a fraction of a second. While rollbacks aim to be imperceptible, extreme cases or visual debuggers can reveal the momentary "snapping" as shown in @mortalcombatx. Michael Stallone of NetherRealm Studios noted that retrofitting rollback into Mortal Kombat X took approximately two man-years of effort, with significant challenges in optimizing serialization and ensuring non-deterministic elements like visual and audio effects were handled consistently during rollbacks. @mortal-kombat-rollback
+The primary benefit is a highly responsive experience that feels akin to offline play, even under significant latency. However, the implementation is complex, requiring the ability to save and load the complete game state very rapidly for every frame and to re-simulate multiple frames' worth of logic in a fraction of a second. While rollbacks aim to be imperceptible, extreme cases or visual debuggers can reveal the momentary "snapping" as shown in @fig:mortalcombatx. Michael Stallone of NetherRealm Studios noted that retrofitting rollback into Mortal Kombat X took approximately two man-years of effort, with significant challenges in optimizing serialization and ensuring non-deterministic elements like visual and audio effects were handled consistently during rollbacks. @mortal-kombat-rollback
 
 #figure(
   image("images/mortal-kombat-x-rollback.png", width: 90%),
@@ -135,7 +144,7 @@ The primary benefit is a highly responsive experience that feels akin to offline
 
 === Server-Side Lag Compensation
 
-While client-side prediction addresses the local player's sense of responsiveness, it does not solve the problem of interactional fairness. A player might fire at a target that is clearly visible on their screen, but due to latency, the target has already moved to a new position on the server's timeline by the time the shot command is processed. This fundamental time discrepancy is illustrated in @relatedlagcompensation. 
+While client-side prediction addresses the local player's sense of responsiveness, it does not solve the problem of interactional fairness. A player might fire at a target that is clearly visible on their screen, but due to latency, the target has already moved to a new position on the server's timeline by the time the shot command is processed. This fundamental time discrepancy is illustrated in @fig:relatedlagcompensation. 
 
 To solve this, servers employ Lag Compensation. The server maintains a short history of past player positions. When it receives a user command, such as a shot, it uses the packet's latency to estimate the time at which the command was actually executed on the client. It then temporarily "rewinds" the positions of other players in the world to where they were at that moment in the past. The hit detection is then performed against these historical positions. After the command is processed, the players are returned to their current positions.
 
@@ -158,7 +167,7 @@ In sharp contrast to sending frequent state updates, deterministic models synchr
 
 In contrast to the state-synchronization model employed by authoritative servers, the deterministic lockstep model operates on a fundamentally different principle. Instead of transmitting game state, clients only transmit their inputs to one another, either through a peer-to-peer topology or relayed via a simple server. Each client runs an identical, fully deterministic simulation of the game world. Provided that every client starts from the same initial state and processes the exact same sequence of inputs in the exact same order (at the same "tick"), their game states are guaranteed to remain perfectly synchronized.
 
-To ensure inputs are processed in the same order, the simulation proceeds in discrete turns. The game will not advance to the next turn until it has received the inputs from all players for that turn. As depicted in @relatedlockstep, this means the entire simulation is forced to pause and wait for the slowest or most delayed participant. To hide the latency of waiting for these inputs, games implementing this model often introduce a fixed input delay, buffering inputs for a short period before executing them. This model's primary advantage is its extraordinary bandwidth efficiency concerning the number of game entities. Since only small input packets are transmitted, the network load scales with the number of players, not the number of units on screen, making it ideal for genres with potentially thousands of entities, such as Real-Time Strategy (RTS) games. @deterministic-lockstep-rts
+To ensure inputs are processed in the same order, the simulation proceeds in discrete turns. The game will not advance to the next turn until it has received the inputs from all players for that turn. As depicted in @fig:relatedlockstep, this means the entire simulation is forced to pause and wait for the slowest or most delayed participant. To hide the latency of waiting for these inputs, games implementing this model often introduce a fixed input delay, buffering inputs for a short period before executing them. This model's primary advantage is its extraordinary bandwidth efficiency concerning the number of game entities. Since only small input packets are transmitted, the network load scales with the number of players, not the number of units on screen, making it ideal for genres with potentially thousands of entities, such as Real-Time Strategy (RTS) games. @deterministic-lockstep-rts
 
 #figure(
   image("diagrams/related-lockstep.svg", width: 80%),
@@ -485,7 +494,7 @@ Unfortunately, since we have to rollback to the last received state, we must mem
 
 To illustrate server reconciliation with rollback, we examine how a client corrects prediction errors when receiving authoritative updates from the server. Consider our movement game with client $c_0$ controlling player $p_0$, with a round trip time of 100 ms (50 ms each direction) and a tick interval of 25 ms. This means the client must predict 4 ticks ahead ($n_"predict" = 100 / 25 = 4$) to maintain responsive gameplay.
 
-The client memorizes all inputs sent to the server that haven't been acknowledged yet. When a server update reveals a prediction error, the client rolls back to the last confirmed state and re-simulates all memorized inputs. This process is visualized in @model-rollback.
+The client memorizes all inputs sent to the server that haven't been acknowledged yet. When a server update reveals a prediction error, the client rolls back to the last confirmed state and re-simulates all memorized inputs. This process is visualized in @fig:model-rollback.
 
 Consider the following execution where player $p_1$ (controlled by another client) moves in a way the client cannot predict:
 
@@ -516,7 +525,7 @@ Consider the following execution where player $p_1$ (controlled by another clien
 
 The table traces the execution of server reconciliation with rollback over 8 ticks, showing how the client maintains responsiveness through prediction while handling authoritative corrections from the server. The "Memorized" column tracks unacknowledged inputs retained for re-simulation, while rows marked with asterisks (\*) detail the internal rollback and re-simulation steps occurring within a single tick when discrepancies are detected.
 
-The critical reconciliation occurs at tick 6. The client has predicted player $p_0$ at position $(2,2)$ based on its "right, right, up, up" sequence, but the server state $(1,0), (5,5)$ reveals that only the first "right" input has been processed server-side. The rollback process, illustrated in @model-rollback, begins by reverting to the server's authoritative state $(1,0), (5,5)$. From this baseline, the client reconstructs its predicted state by re-applying all unacknowledged inputs in sequence: the second "right" transforming $(1,0)$ to $(2,0)$, two "up" inputs advancing through $(2,1)$ to $(2,2)$, and finally "stop" maintaining the position. The acknowledged first "right" is then removed from the memorized buffer.
+The critical reconciliation occurs at tick 6. The client has predicted player $p_0$ at position $(2,2)$ based on its "right, right, up, up" sequence, but the server state $(1,0), (5,5)$ reveals that only the first "right" input has been processed server-side. The rollback process, illustrated in @fig:model-rollback, begins by reverting to the server's authoritative state $(1,0), (5,5)$. From this baseline, the client reconstructs its predicted state by re-applying all unacknowledged inputs in sequence: the second "right" transforming $(1,0)$ to $(2,0)$, two "up" inputs advancing through $(2,1)$ to $(2,2)$, and finally "stop" maintaining the position. The acknowledged first "right" is then removed from the memorized buffer.
 
 Following re-simulation, the client achieves state $(2,2), (5,5)$, where player $p_0$'s position matches the original prediction. This outcome is characteristic when prediction errors stem solely from other players' unpredictable movements. The reconciliation at tick 8 presents a more complex case where player $p_1$ has moved to $(4,5)$, introducing a persistent divergence.
 
@@ -973,9 +982,9 @@ This initial experiment examines reconciliation behavior in a carefully controll
 
 === Setup
 
-The experiment employs our top-down movement game with two distinct player roles that create complementary observation perspectives. Player 1 executes a deterministic movement pattern designed to generate regular, predictable reconciliation events: 30 ticks of downward movement followed by 30 ticks of rightward movement, repeating throughout the 180-tick (3-second) experiment duration. This pattern ensures that velocity changes occur at known intervals, creating periodic challenges for the reconciliation system as the client must correct its predictions when these changes become known. Player 2 remains stationary at a fixed position, serving as an observer whose client must reconcile Player 1's movements without any local prediction of its own movement.
+The experiment employs our top-down movement game with two distinct player roles that create complementary observation perspectives. Player 1 executes a deterministic movement pattern designed to generate regular, predictable reconciliation events: 30 ticks of downward movement followed by 30 ticks of rightward movement, repeating throughout the 120-tick (2-second) experiment duration. This pattern ensures that velocity changes occur at known intervals, creating periodic challenges for the reconciliation system as the client must correct its predictions when these changes become known. Player 2 remains stationary at a fixed position, serving as an observer whose client must reconcile Player 1's movements without any local prediction of its own movement.
 
-The network configuration simulates moderate latency conditions with a 30-tick delay in each direction, representing approximately 500ms round-trip time at 60 Hz, typical of intercontinental internet connections. This delay is substantial enough to create meaningful prediction windows where clients must operate on incomplete information, yet not so extreme as to represent unrealistic edge cases. The absence of collision interactions between players ensures that prediction errors arise solely from information delay rather than complex physical dependencies, allowing us to evaluate the pure reconciliation mechanics of each method.
+The network configuration simulates moderate latency conditions with a 30-tick delay in each direction, representing approximately 1000ms round-trip time at 60 Hz, typical of intercontinental internet connections. This delay is substantial enough to create meaningful prediction windows where clients must operate on incomplete information, yet not so extreme as to represent unrealistic edge cases. The absence of collision interactions between players ensures that prediction errors arise solely from information delay rather than complex physical dependencies, allowing us to evaluate the pure reconciliation mechanics of each method.
 
 === Results
 
@@ -1002,9 +1011,9 @@ The experimental results reveal striking similarities between algebraic and roll
     ),
   ),
   caption: [Player 1's x-position as observed from Player 2's client perspective. The server's authoritative position (solid red) is compared with the client's synchronized view under algebraic (purple dashed), rollback (blue dashed), and override (red dashed) reconciliation strategies. The complete overlap of all three client lines demonstrates perfect convergence across all methods.]
-) <fig:exp1-stationary>
+) <exp1-stationary>
 
-Figure @fig:exp1-stationary presents the most fundamental test of reconciliation correctness: the ability to maintain consistent state for entities not under local control. From Player 2's stationary perspective, all three reconciliation methods successfully track Player 1's movement pattern, with the dashed lines representing client state perfectly overlapping across algebraic, rollback, and override strategies. This overlap is particularly significant for algebraic reconciliation, as it demonstrates that the correction term $epsilon = Delta s - Delta p$ accurately compensates for unpredicted movements without requiring state rollback or input re-simulation. The periodic shifts in the observed position correspond to Player 1's velocity changes, which propagate to Player 2's client after the network delay. The fact that algebraic reconciliation handles these discontinuous changes as effectively as rollback reconciliation validates our approach to direct algebraic correction.
+@fig:exp1-stationary presents the most fundamental test of reconciliation correctness: the ability to maintain consistent state for entities not under local control. From Player 2's stationary perspective, all three reconciliation methods successfully track Player 1's movement pattern, with the dashed lines representing client state perfectly overlapping across algebraic, rollback, and override strategies. This overlap is particularly significant for algebraic reconciliation, as it demonstrates that the correction term $epsilon = Delta s - Delta p$ accurately compensates for unpredicted movements without requiring state rollback or input re-simulation. The periodic shifts in the observed position correspond to Player 1's velocity changes, which propagate to Player 2's client after the network delay. The fact that algebraic reconciliation handles these discontinuous changes as effectively as rollback reconciliation validates our approach to direct algebraic correction.
 
 #let data_chart_1 = json("data/stationary-observed-player-1.json")
 #figure(
@@ -1027,9 +1036,9 @@ Figure @fig:exp1-stationary presents the most fundamental test of reconciliation
     ),
   ),
   caption: [Client-side prediction accuracy from Player 1's perspective. Both algebraic (purple dashed) and rollback (blue dashed) reconciliation produce identical predictions that maintain a consistent offset from the server's authoritative state (red solid), demonstrating equivalent prediction quality.]
-) <fig:exp1-moving-comparison>
+) <exp1-moving-comparison>
 
-The perspective from Player 1's client, shown in Figure @fig:exp1-moving-comparison, reveals the prediction dynamics that make modern networked games playable despite latency. Both algebraic and rollback reconciliation maintain identical prediction trajectories, consistently leading the server's authoritative position by approximately 30 ticks, exactly the network delay period. This offset represents the fundamental characteristic of client-side prediction: the client shows where the player will be once the server processes their inputs, not where the server currently believes them to be. The perfect alignment between algebraic and rollback predictions confirms that our method preserves the essential responsiveness of client-side prediction while eliminating the computational overhead of repeated simulation. The smooth transitions at velocity change points (every 30 ticks) demonstrate that both methods handle prediction updates gracefully, without introducing additional artifacts or discontinuities.
+The perspective from Player 1's client, shown in @fig:exp1-moving-comparison, reveals the prediction dynamics that make modern networked games playable despite latency. Both algebraic and rollback reconciliation maintain identical prediction trajectories, consistently leading the server's authoritative position by approximately 30 ticks, exactly the network delay period. This offset represents the fundamental characteristic of client-side prediction: the client shows where the player will be once the server processes their inputs, not where the server currently believes them to be. The perfect alignment between algebraic and rollback predictions confirms that our method preserves the essential responsiveness of client-side prediction while eliminating the computational overhead of repeated simulation. The smooth transitions at velocity change points (every 30 ticks) demonstrate that both methods handle prediction updates gracefully, without introducing additional artifacts or discontinuities.
 
 #let data_chart_1 = json("data/stationary-observe-comparison.json")
 #figure(
@@ -1048,9 +1057,9 @@ The perspective from Player 1's client, shown in Figure @fig:exp1-moving-compari
     ),
   ),
   caption: [Comparison of prediction responsiveness between algebraic (purple dashed) and override (red dashed) reconciliation from Player 1's perspective. The stair-step pattern in override reconciliation reflects the 30-tick delay between input and visible effect, while algebraic reconciliation provides immediate visual feedback.]
-) <fig:exp1-override>
+) <exp1-override>
 
-Figure @fig:exp1-override starkly illustrates why naive override reconciliation creates an unacceptable player experience in interactive games. The override method's characteristic stair-step pattern reveals the full network round-trip delay between player input and visual feedback: each movement command initiated by Player 1 only becomes visible after traveling to the server and back, creating a 60-tick (1-second) perceived lag. In contrast, algebraic reconciliation maintains smooth, immediate response to inputs, with position updates appearing instantaneously from the controlling player's perspective. The periodic convergence points where both lines intersect represent moments when the server state finally catches up to where the client was 30 ticks earlier, confirming that both methods eventually achieve consistency despite their radically different user experiences. This comparison underscores that algebraic reconciliation preserves the essential benefit of client-side prediction, responsive controls, while achieving it through direct algebraic operations rather than speculative simulation.
+@fig:exp1-override starkly illustrates why naive override reconciliation creates an unacceptable player experience in interactive games. The override method's characteristic stair-step pattern reveals the full network round-trip delay between player input and visual feedback: each movement command initiated by Player 1 only becomes visible after traveling to the server and back, creating a 60-tick (1-second) perceived lag. In contrast, algebraic reconciliation maintains smooth, immediate response to inputs, with position updates appearing instantaneously from the controlling player's perspective. The periodic convergence points where both lines intersect represent moments when the server state finally catches up to where the client was 30 ticks earlier, confirming that both methods eventually achieve consistency despite their radically different user experiences. This comparison underscores that algebraic reconciliation preserves the essential benefit of client-side prediction, responsive controls, while achieving it through direct algebraic operations rather than speculative simulation.
 
 === Analysis
 
@@ -1074,7 +1083,7 @@ This experiment employs the same top-down movement game but introduces a direct 
 
 The physics engine enforces a hard constraint that player collision volumes cannot overlap, forcing the simulation to resolve conflicts by pushing players apart when they attempt to occupy the same space. This constraint fundamentally violates our temporal stability assumption: when a client predicts its own movement without knowledge of the impending collision, it generates deltas that assume unimpeded motion. The server, processing both players' movements simultaneously, generates different deltas that account for the collision forces. This divergence between predicted and actual deltas provides an ideal test case for understanding how algebraic reconciliation handles state-dependent interactions.
 
-We conduct the experiment at three different network delays, 15, 30, and 45 frames, to observe how latency affects the magnitude and duration of reconciliation errors. Each test runs for 180 frames (3 seconds at 60 Hz), sufficient to capture the complete collision event including approach, contact, separation, and post-collision reconciliation. The collision typically occurs around frame 60, allowing observation of both pre-collision prediction accuracy and post-collision error recovery.
+We conduct the experiment at three different network delays, 15, 30, and 45 frames, to observe how latency affects the magnitude and duration of reconciliation errors. Each test runs for 120 frames (2 seconds at 60 Hz), sufficient to capture the complete collision event including approach, contact, separation, and post-collision reconciliation. The collision typically occurs around frame 60, allowing observation of both pre-collision prediction accuracy and post-collision error recovery.
 
 === Results
 
@@ -1105,9 +1114,9 @@ The x-axis represents the primary movement direction for both players, where int
     ),
   ),
   caption: [Player 1's x-position observed from their own perspective during collision. Both algebraic (purple dashed) and rollback (blue dashed) reconciliation show similar overshooting behavior relative to the server state (red solid), indicating comparable prediction behavior when movement intentions conflict with physics constraints.]
-) <fig:exp2-x-moving>
+) <exp2-x-moving>
 
-Figure @fig:exp2-x-moving demonstrates that from the controlling player's perspective, algebraic and rollback reconciliation produce nearly identical predictions along the primary movement axis. Both methods overshoot the server's position by approximately 40 units at the peak, reflecting the fundamental challenge of predicting through an unknown collision. The overshoot occurs because the client continues predicting rightward movement while the server has already processed the collision and stopped forward progress. The subsequent convergence shows both methods successfully reconciling to the server state once the collision information propagates through the network delay. The slight divergence between algebraic and rollback traces during the collision phase (frames 50-90) suggests minor differences in how the methods handle the rapid state changes, but these differences remain visually negligible from the controlling player's perspective.
+@fig:exp2-x-moving demonstrates that from the controlling player's perspective, algebraic and rollback reconciliation produce nearly identical predictions along the primary movement axis. Both methods overshoot the server's position by approximately 40 units at the peak, reflecting the fundamental challenge of predicting through an unknown collision. The overshoot occurs because the client continues predicting rightward movement while the server has already processed the collision and stopped forward progress. The subsequent convergence shows both methods successfully reconciling to the server state once the collision information propagates through the network delay. The slight divergence between algebraic and rollback traces during the collision phase (frames 50-90) suggests minor differences in how the methods handle the rapid state changes, but these differences remain visually negligible from the controlling player's perspective.
 
 #let data_chart_1 = json("data/collision-x-observed-player-2.json")
 #figure(
@@ -1130,9 +1139,9 @@ Figure @fig:exp2-x-moving demonstrates that from the controlling player's perspe
     ),
   ),
   caption: [Player 1's x-position as observed from Player 2's perspective. The algebraic method (purple dashed) shows slightly greater deviation from the server state compared to rollback (blue dashed), revealing increased error when observing other players during collisions.]
-) <fig:exp2-x-other>
+) <exp2-x-other>
 
-The view from Player 2's perspective, shown in Figure @fig:exp2-x-other, reveals a subtle but important difference between the reconciliation methods. The algebraic approach produces slightly larger deviations from the server state when observing the other player's collision response. This increased error for non-controlled entities suggests that the algebraic correction term ε = Δs - Δp becomes less accurate when applied to states affected by multi-entity interactions, as the correction computed for one player's movement doesn't fully account for the coupled dynamics introduced by the collision.
+The view from Player 2's perspective, shown in @fig:exp2-x-other, reveals a subtle but important difference between the reconciliation methods. The algebraic approach produces slightly larger deviations from the server state when observing the other player's collision response. This increased error for non-controlled entities suggests that the algebraic correction term ε = Δs - Δp becomes less accurate when applied to states affected by multi-entity interactions, as the correction computed for one player's movement doesn't fully account for the coupled dynamics introduced by the collision.
 
 #let data_chart_1 = json("data/collision-x-compare-player-1.json")
 #figure(
@@ -1151,7 +1160,7 @@ The view from Player 2's perspective, shown in Figure @fig:exp2-x-other, reveals
     ),
   ),
   caption: [Absolute difference from server x-position for Player 1's own view. Algebraic reconciliation (purple dashed) maintains significantly lower error than override reconciliation (red dashed), though both methods struggle during the collision event.]
-) <fig:exp2-x-diff-self>
+) <exp2-x-diff-self>
 
 
 #let data_chart_1 = json("data/collision-x-compare-player-2.json")
@@ -1171,7 +1180,7 @@ The view from Player 2's perspective, shown in Figure @fig:exp2-x-other, reveals
     ),
   ),
   caption: [Absolute difference from server x-position when Player 2 observes Player 1. The algebraic method (purple dashed) shows periods of higher error than override (red dashed), particularly during collision resolution.]
-) <fig:exp2-x-diff-other>
+) <exp2-x-diff-other>
 
 Figures @fig:exp2-x-diff-self and @fig:exp2-x-diff-other compare the absolute error magnitudes between algebraic and override reconciliation. From the controlling player's perspective, algebraic reconciliation achieves substantially lower error throughout most of the simulation, with peak errors during collision approximately 50% lower than override. However, when observing other players, algebraic reconciliation occasionally produces higher errors than override, particularly during the collision resolution phase. This asymmetry suggests that while algebraic reconciliation excels at maintaining responsive control for the local player, it may introduce artifacts when synchronizing observed entities during complex interactions.
 
@@ -1183,7 +1192,7 @@ The y-axis behavior provides unique insights into reconciliation accuracy becaus
 #figure(
   lq.diagram(
     width: 10cm,
-    title: "Players own X axis movement during collision",
+    title: "Players own Y axis movement during collision",
     legend: (position: bottom + right),
 
     lq.plot(
@@ -1200,34 +1209,9 @@ The y-axis behavior provides unique insights into reconciliation accuracy becaus
     ),
   ),
   caption: [Player 1's y-position during collision as seen from their own perspective. The algebraic method (purple dashed) exhibits characteristic overcorrection, overshooting the server position (red solid) more dramatically than rollback reconciliation (blue dashed).]
-) <fig:exp2-y-moving>
+) <exp2-y-moving>
 
-Figure @fig:exp2-y-moving reveals the most distinctive characteristic of algebraic reconciliation under violated assumptions: systematic overcorrection. When the server's collision-induced y-displacement arrives at the client, the algebraic method applies this correction to a state that has already been predicting collision effects based on incomplete information. The result is a compounding of corrections that pushes the y-position beyond the server's value by approximately 20 units. This overcorrection gradually resolves as subsequent server updates arrive, but the pattern clearly shows the algebraic method struggling to handle state changes that depend on information not available during prediction.
-
-#let data_chart_1 = json("data/collision-y-observed-player-2.json")
-#figure(
-  lq.diagram(
-    width: 10cm,
-    title: "Other players X axis movement during collision",
-    legend: (position: top + right),
-
-    lq.plot(
-      data_chart_1.at("rollback_client_player-2.x"), data_chart_1.at("rollback_client_player-2.y"), label: "Rollback", 
-      mark: "none", stroke: (paint: blue, thickness: 2pt, dash: "dashed")
-    ),
-    lq.plot(
-      data_chart_1.at("algebraic_client_player-2.x"), data_chart_1.at("algebraic_client_player-2.y"), label: "Algebraic", 
-      mark: "none", stroke: (paint: purple, thickness: 2pt, dash: "dashed")
-    ),
-    lq.plot(
-      data_chart_1.at("override_server.x"), data_chart_1.at("override_server.y"), label: "Server Truth",
-      mark: "none", stroke: (paint: red, thickness: 2pt)
-    ),
-  ),
-  caption: [Absolute y-position error from Player 1's perspective. The algebraic method (purple dashed) shows a characteristic double-peak pattern, with the second peak representing the overcorrection artifact unique to this reconciliation approach.]
-) <fig:exp2-y-diff-self>
-
-The error analysis in Figure @fig:exp2-y-diff-self provides crucial insight into the overcorrection mechanism. Both methods exhibit an initial error peak when the collision occurs without prediction, but algebraic reconciliation uniquely produces a second, smaller peak approximately 30 frames later. This secondary peak corresponds to the overcorrection being resolved as the server state confirms the players have separated. The double-peak pattern is pathognomonic of algebraic reconciliation's response to state-dependent dynamics: the method first overcorrects when applying delayed corrections to an already-evolved state, then must correct the overcorrection once the dependency resolves.
+@fig:exp2-y-moving reveals the most distinctive characteristic of algebraic reconciliation under violated assumptions: systematic overcorrection. When the server's collision-induced y-displacement arrives at the client, the algebraic method applies this correction to a state that has already been predicting collision effects based on incomplete information. The result is a compounding of corrections that pushes the y-position beyond the server's value by approximately 20 units. This overcorrection gradually resolves as subsequent server updates arrive, but the pattern clearly shows the algebraic method struggling to handle state changes that depend on information not available during prediction.
 
 #let data_chart_1 = json("data/collision-y-compare-player-1.json")
 #figure(
@@ -1245,8 +1229,33 @@ The error analysis in Figure @fig:exp2-y-diff-self provides crucial insight into
       mark: "none", stroke: (paint: purple, thickness: 2pt, dash: "dashed")
     ),
   ),
+  caption: [Absolute y-position error from Player 1's perspective. The algebraic method (purple dashed) shows a characteristic double-peak pattern, with the second peak representing the overcorrection artifact unique to this reconciliation approach.]
+) <exp2-y-diff-self>
+
+The error analysis in @fig:exp2-y-diff-self provides crucial insight into the overcorrection mechanism. Both methods exhibit an initial error peak when the collision occurs without prediction, but algebraic reconciliation uniquely produces a second, smaller peak approximately 30 frames later. This secondary peak corresponds to the overcorrection being resolved as the server state confirms the players have separated. The double-peak pattern is pathognomonic of algebraic reconciliation's response to state-dependent dynamics: the method first overcorrects when applying delayed corrections to an already-evolved state, then must correct the overcorrection once the dependency resolves.
+
+#let data_chart_1 = json("data/collision-y-observed-player-2.json")
+#figure(
+  lq.diagram(
+    width: 10cm,
+    title: "Other players Y axis movement during collision",
+    legend: (position: top + right),
+
+    lq.plot(
+      data_chart_1.at("rollback_client_player-2.x"), data_chart_1.at("rollback_client_player-2.y"), label: "Rollback", 
+      mark: "none", stroke: (paint: blue, thickness: 2pt, dash: "dashed")
+    ),
+    lq.plot(
+      data_chart_1.at("algebraic_client_player-2.x"), data_chart_1.at("algebraic_client_player-2.y"), label: "Algebraic", 
+      mark: "none", stroke: (paint: purple, thickness: 2pt, dash: "dashed")
+    ),
+    lq.plot(
+      data_chart_1.at("override_server.x"), data_chart_1.at("override_server.y"), label: "Server Truth",
+      mark: "none", stroke: (paint: red, thickness: 2pt)
+    ),
+  ),
   caption: [Player 1's y-position observed from Player 2's perspective. The algebraic method (purple dashed) shows substantially larger deviation from the server state (red solid) compared to rollback (blue dashed).]
-) <fig:exp2-y-other>
+) <exp2-y-other>
 
 #let data_chart_1 = json("data/collision-y-compare-player-2.json")
 #figure(
@@ -1265,7 +1274,7 @@ The error analysis in Figure @fig:exp2-y-diff-self provides crucial insight into
     ),
   ),
   caption: [Y-position error magnitude when Player 2 observes Player 1. The algebraic method (purple dashed) produces errors more than twice as large as rollback reconciliation (blue dashed), highlighting the method's weakness in synchronizing observed collision dynamics.]
-) <fig:exp2-y-diff-other>
+) <exp2-y-diff-other>
 
 The degradation of algebraic reconciliation becomes most apparent when examining y-axis synchronization from the observing player's perspective, shown in Figures @fig:exp2-y-other and @fig:exp2-y-diff-other. The error magnitude for algebraic reconciliation exceeds rollback by a factor of two or more during the collision event, with peak errors reaching nearly 50 units compared to rollback's 20-unit maximum. This dramatic difference indicates that algebraic reconciliation's assumptions break down severely when reconciling observed entities whose states depend on complex multi-body interactions.
 
@@ -1281,46 +1290,150 @@ The asymmetric error characteristics, lower error for controlled entities, highe
 
 The temporal pattern of overcorrection and recovery provides guidance for potential improvements to the algebraic method. The predictable nature of the overcorrection, always occurring one network delay after the initial collision, suggests that adaptive correction factors or damping terms could reduce the artifact magnitude without sacrificing the method's computational advantages. Future work might explore such enhancements to extend algebraic reconciliation's applicability to more complex interaction scenarios.
 
-= Discussion
+== Discussion
 
-// - we have seen that not only there exist many networking approaches but also variations
-// - many networking approaches have oppurtunities for optimization. for example, if only small
-// parts of world are static, then implementing rollback synchronization can be cheap. 
-// - if state changes that need to be predicted are generally small enough, one can also go an approach
-// like minecraft by sending the state from the client. This makes development cost cheaper.
-// - in the end it is often a tradeoff between performance, consistency and security. As for example the
-// minecraft approach lacks strong security mechanisms.
-// - our introduced method uses techniques already widely known and used in the software industry, for example in 
-// databases or user applications.
-// - our method does not work in cases with strong dependencies between states or states with entities without
-// identity. this is especially a problem in sandbox games but even more so in voxel games. the problem with voxel
-// games as previously explained is that blocks by design do not have an identity but its position. This makes the 
-// use of algebraic networking impossible
-// - but the amount of multiplayer games who can benefit from algebraic reconciliation is still significant.
-// - networking methods shouldnt be seen as absolute approaches but in combination. 
-// - since mutliplayer games can employ specific opimizations depending on their world model, each game will most
-// likely have their custom solution. while this might not make sense for small indie studios, this is especially
-// relevant for big projects.
-// - therefore we can say, that modern projects will use a hybrid approach, where the state is sliced into multiple parts.
-// some parts of the state which does not directly depend on many other parts of the state, can easily be synchronized 
-// using algebraic server reconciliation. this method can then be thought of an extension to CRDTs.
-// - while crdts try to be commutative with everything, the idea behind algebraic server reconciliation is that we still
-// have a central server. we exploit this fact when using them.
-// - our contribution is not only a new apporach to game networking, but also in a possible way to formilize game networking in general
-// and how to build abelian groups for almost any game.
+The exploration of algebraic server reconciliation presented in this thesis reveals a fundamental truth about networked game development: there exists no universal solution to the synchronization problem, but rather a spectrum of approaches each with distinct trade-offs and optimal use cases. Through our theoretical analysis and experimental validation, we have demonstrated that algebraic reconciliation offers a computationally efficient alternative to traditional rollback methods under specific conditions. This chapter synthesizes our findings within the broader context of game networking, examining the practical implications for game developers and the relationship between our method and existing distributed systems techniques.
+
+=== The Landscape of Networking Optimizations
+
+Our investigation has revealed that networking approaches in games are not monolithic solutions but rather collections of techniques that can be optimized for specific scenarios. Consider rollback reconciliation: while computationally expensive in the general case, it becomes remarkably efficient when only small portions of the game world require prediction. A real-time strategy game where players control a single hero unit among thousands of AI-controlled entities can implement rollback exclusively for the hero, achieving both responsiveness and efficiency. Similarly, games with predominantly static environments can minimize the reconciliation overhead by limiting prediction to dynamic objects.
+
+The diversity of optimization opportunities extends beyond traditional methods. Minecraft's approach of sending predicted states from client to server, rather than just inputs, demonstrates how architectural decisions can reduce development complexity at the cost of other properties. By accepting the client's predicted state and only validating it server-side, Minecraft eliminates the need for complex reconciliation logic. This design choice makes the networking layer simpler to implement and maintain, particularly valuable for smaller development teams. However, this simplicity comes with clear trade-offs in security and consistency guarantees.
+
+=== Trade-offs in Network Architecture Design
+
+The fundamental tension in networked game design exists between three competing goals: performance, consistency, and security. Our algebraic reconciliation method optimizes for performance by eliminating re-simulation, maintains reasonable consistency through mathematical convergence properties, but like all prediction-based approaches, cannot guarantee perfect security against malicious clients. This three-way trade-off manifests differently across various architectural choices.
+
+The Minecraft approach prioritizes development simplicity and performance over security, accepting client-authoritative updates that can be exploited by modified clients. Traditional rollback reconciliation maximizes consistency and security at the cost of computational performance. Deterministic lockstep, as discussed in Chapter 2, achieves perfect consistency and security but sacrifices performance and responsiveness. Our algebraic method occupies a middle ground, offering improved performance over rollback while maintaining similar security properties, though with reduced consistency guarantees when temporal stability assumptions are violated.
+
+These trade-offs are not merely technical considerations but fundamentally shape the player experience and viable game designs. A competitive esports title cannot compromise on security, making client-authoritative approaches unacceptable regardless of their performance benefits. Conversely, a cooperative sandbox game might reasonably prioritize creative freedom and performance over strict security enforcement.
+
+=== Connections to Established Distributed Systems Techniques
+
+The algebraic reconciliation method introduced in this thesis draws inspiration from and extends techniques widely deployed in distributed systems, particularly Conflict-Free Replicated Data Types (CRDTs). The connection is more than superficial: both approaches rely on algebraic properties to ensure convergence without coordination. However, our method exploits the specific topology of client-server game architectures to achieve properties that generic CRDTs cannot provide.
+
+Traditional CRDTs must handle arbitrary ordering of operations from any replica, requiring strong commutativity properties that severely limit the types of operations that can be supported. Our algebraic reconciliation relaxes this requirement by leveraging the authoritative server model. We don't need operations to commute with all possible operations, only with the specific prediction deltas generated by clients. This relaxation enables support for a broader class of game state transformations while maintaining convergence guarantees.
+
+Furthermore, our centralized authority model eliminates the need for complex conflict resolution mechanisms inherent in peer-to-peer CRDTs. The server's authoritative state provides a natural linearization point that resolves any conflicts through the reconciliation process. This architectural advantage allows us to handle operations that would create conflicts in a pure CRDT system, such as competitive resource allocation or exclusive state transitions.
+
+=== Limitations and Domain Constraints
+
+Despite its advantages, algebraic reconciliation faces fundamental limitations that restrict its applicability. The most significant constraint emerges in games with strong state dependencies, where the behavior of one entity fundamentally alters the dynamics of another. Our experiments with collision dynamics demonstrated this limitation clearly: when physics constraints couple entity movements, the temporal stability assumption fails, leading to overcorrection artifacts.
+
+The limitation becomes insurmountable in certain game architectures, particularly voxel-based games like Minecraft or Terraria. In these games, blocks lack persistent identity beyond their position in the world grid. When a player mines a block at position (x, y, z), that block ceases to exist rather than moving or transforming. This deletion-creation pattern violates the assumptions underlying our Abelian group construction, which requires entities to maintain identity across state changes. Without stable entity identities, we cannot meaningfully compute difference deltas or apply corrections algebraically.
+
+Similarly, games featuring complex emergent behaviors from simple rules, such as Conway's Game of Life simulations or cellular automata-based mechanics, resist algebraic reconciliation. The state at each timestep depends holistically on the entire previous state, making it impossible to isolate independent deltas that can be algebraically composed. These systemic dependencies create cascading prediction errors that our correction mechanism cannot resolve.
+
+=== Applicability and Adoption Potential
+
+Despite these limitations, a significant portion of the multiplayer gaming landscape could benefit from algebraic reconciliation. The method excels in games with:
+
+- Entity-based architectures where objects maintain persistent identities
+- Relatively independent entity behaviors with occasional interactions
+- Position-based movement as the primary state change
+- Limited physics coupling between player-controlled entities
+
+This encompasses many popular genres including MOBAs, battle royales with large maps, MMORPGs, and real-time strategy games. Even games with occasional physics interactions, such as fighting games or sports simulations, could employ algebraic reconciliation during non-contact phases while switching to rollback during collisions.
+
+The computational savings become particularly compelling for mobile platforms, where battery life and thermal constraints limit the feasibility of extensive re-simulation. A mobile MOBA could use algebraic reconciliation to support more players per match or reduce battery consumption without sacrificing responsiveness. Cloud gaming platforms could reduce server costs by eliminating redundant simulation work across thousands of concurrent sessions.
+
+=== Toward Hybrid Network Architectures
+
+Our research suggests that future networking architectures will increasingly adopt hybrid approaches, selectively applying different synchronization methods to different aspects of game state. Rather than viewing networking methods as mutually exclusive alternatives, developers should consider them as complementary tools within a comprehensive synchronization strategy.
+
+A sophisticated implementation might partition game state into multiple synchronized domains. Player movement and simple projectiles could use algebraic reconciliation for efficiency. Complex physics interactions could employ rollback reconciliation for accuracy. Environmental changes might use event-based replication for simplicity. Inventory and progression systems could leverage CRDT-inspired structures for robustness. This compositional approach allows each subsystem to use the most appropriate synchronization method for its specific requirements.
+
+Large-scale productions already employ similar hybrid strategies, though often in an ad-hoc manner. Our formalization provides a theoretical framework for reasoning about these compositions systematically. By understanding the mathematical properties required for each synchronization method, developers can make informed decisions about state partitioning and method selection.
+
+=== Implications for Game Development Practice
+
+The practical implications of our work extend beyond the specific technique of algebraic reconciliation. Our formal framework for reasoning about game state synchronization provides value independent of whether developers adopt our specific method. The explicit formulation of game state as (S, s₀, f) with progression functions and delta states offers a lingua franca for discussing and comparing networking approaches.
+
+For small indie studios, the primary value may be in understanding the trade-offs between different approaches rather than implementing custom solutions. Knowing when rollback reconciliation becomes prohibitively expensive or when client-authoritative updates provide acceptable security can inform architectural decisions early in development when changes remain feasible.
+
+Larger studios with resources for custom networking solutions can use our framework to identify optimization opportunities within their existing architectures. The mathematical characterization of state changes as elements of an Abelian group provides a concrete test for whether algebraic reconciliation could benefit specific game systems. Even partial adoption for suitable subsystems could yield measurable performance improvements.
+
+=== Contributions and Broader Impact
+
+This thesis makes three primary contributions to the field of game networking:
+
+First, we introduce algebraic server reconciliation as a novel synchronization method that eliminates re-simulation overhead while maintaining prediction responsiveness. The technique's mathematical foundation in Abelian group theory provides formal convergence guarantees under well-defined conditions.
+
+Second, we provide a comprehensive formalization of game networking concepts that enables rigorous comparison of different approaches. This framework facilitates reasoning about hybrid architectures and helps identify which synchronization methods suit specific game mechanics.
+
+Third, we demonstrate how to construct Abelian groups for arbitrary ECS-based games, providing a practical blueprint for implementing algebraic reconciliation in modern game engines. This construction methodology extends beyond our specific technique, offering insights into how game state can be structured to support various algebraic operations.
+
+Beyond these direct contributions, our work bridges the gap between distributed systems theory and game development practice. By adapting CRDT concepts to the specific constraints and opportunities of client-server game architectures, we demonstrate how theoretical insights from adjacent fields can yield practical benefits in game development. This cross-pollination suggests that further exploration of distributed systems techniques could yield additional innovations in game networking.
+
+The formal treatment of game state synchronization also opens avenues for automated verification and testing of networking code. The mathematical properties we identify could form the basis for property-based testing frameworks that automatically verify synchronization correctness. Static analysis tools could detect when game mechanics violate the assumptions required for specific networking methods, preventing subtle bugs that only manifest under specific network conditions.
 
 = Future work
 
-// - one of the core aspects we did not explore are hybrid models. approaches where we could use some reconciliation
-// methods for one part of the state and others for other parts of the state.
-// - we did not implement a full game based on the approaches presented here, which would be the next logical step
-// to show that our method is relevant in the industry.
-// - there are many possible optimizations which can be implemented to further enhance our method. for example one could
-// be inspired by minecraft and send merkel trees of the state deltas to the server. the server can now decide which users
-// actually need state updates. games with big states could thereof save state transmission, which is most commonly correctly
-// predicted.
+The theoretical foundations and experimental validation presented in this thesis establish algebraic server reconciliation as a viable technique for specific game architectures, yet this work represents only an initial exploration of a broader design space. The insights gained from our investigation reveal multiple promising research directions that could extend the applicability, efficiency, and robustness of algebraic approaches to game state synchronization. This chapter outlines the most compelling avenues for future work, ranging from immediate practical extensions to more speculative theoretical explorations.
 
-/*
-- Since operating on deltas compared to full state has many advantages. Does operating on higher derivatives have even more advantages? This would solve the problem of falling or shooting things and the system would adjust.
-- We could instead of just adding the computed epsilon on top of the present, use a PID regulator to add it. The idea would be to reduce the amount of oscilliation in the system which is caused by overshooting errors.
-*/
+== Hybrid Reconciliation Architectures
+
+Perhaps the most immediate and practical extension of our work lies in the systematic development of hybrid reconciliation models. Our experiments demonstrated that algebraic reconciliation excels for position-based movement with minimal state dependencies but struggles with complex physics interactions. This suggests that optimal networking architectures should employ different reconciliation strategies for different components of game state, selecting the most appropriate method based on the specific characteristics of each state partition.
+
+A hybrid architecture would partition game state into reconciliation domains based on their mathematical properties and interaction patterns. Entity positions and simple attributes could employ algebraic reconciliation for computational efficiency. Complex physics interactions could switch to rollback reconciliation when collisions are detected or predicted. Discrete state changes, such as ability activations or item pickups, might use event-based replication with client-side prediction but no reconciliation. Environmental modifications could leverage CRDT-inspired structures for their natural conflict resolution properties.
+
+The key research challenge lies in managing the boundaries between these domains. When a projectile transitions from free flight (suitable for algebraic reconciliation) to collision with a character (requiring rollback), the handoff must be seamless and maintain consistency across all clients. This requires formal methods for composing different reconciliation strategies and proving that the composition maintains convergence properties. The development of such compositional frameworks would enable developers to construct sophisticated networking systems from well-understood primitive operations.
+
+== Industrial Validation Through Full Game Implementation  
+
+While our experiments demonstrate the theoretical viability of algebraic reconciliation, the ultimate test of any networking technique lies in its deployment within a production game. Future work should focus on implementing a complete multiplayer game that leverages algebraic reconciliation as its primary synchronization method. This implementation would serve multiple purposes: validating the technique under realistic conditions, identifying practical engineering challenges not apparent in controlled experiments, and demonstrating industry relevance to potential adopters.
+
+The ideal validation project would be a game specifically designed to showcase the strengths of algebraic reconciliation while remaining genuinely entertaining. A multiplayer action-RPG with hundreds of AI-controlled enemies, where players control heroes with position-based abilities, would highlight the computational advantages when only a small fraction of entities require prediction. The game should include sufficient complexity to stress the networking system, multiple simultaneous players, varied network conditions, and diverse interaction types, while avoiding mechanics that fundamentally violate temporal stability assumptions.
+
+Such an implementation would also reveal integration challenges with existing game engines and networking middleware. Most commercial engines assume rollback-based reconciliation in their networking layers, requiring significant architectural modifications to support algebraic methods. Documenting these integration challenges and developing migration strategies would lower adoption barriers for existing projects considering algebraic reconciliation.
+
+== Merkle Tree Optimization for Selective State Transmission
+
+Our current implementation transmits all state changes to all clients, regardless of whether those changes affect predicted state. Future work should explore hierarchical state representations that enable selective transmission based on prediction accuracy. Inspired by Minecraft's approach to state validation, we propose using Merkle trees to efficiently identify and transmit only mispredicted state components.
+
+Under this optimization, clients would compute cryptographic hashes of their predicted state partitions and transmit these to the server alongside their inputs. The server, maintaining the authoritative state, can compare these hashes with its own to identify divergent partitions without examining the full state. Only partitions with hash mismatches require synchronization, potentially reducing bandwidth requirements by an order of magnitude for states that are accurately predicted.
+
+The Merkle tree structure provides additional benefits beyond bandwidth optimization. The hierarchical nature enables progressive refinement, where coarse-grained divergences are corrected before fine-grained details. This could reduce the visual impact of corrections by spreading them across multiple frames. Furthermore, the cryptographic properties provide a foundation for cheat detection: clients that consistently report incorrect hashes for non-predicted state components may be running modified game code.
+
+== Higher-Order Derivative Synchronization
+
+Our algebraic reconciliation operates on first-order derivatives (deltas) of game state. A natural theoretical extension considers whether operating on higher-order derivatives could provide additional benefits, particularly for addressing the limitations observed with acceleration-based movement and physics interactions. Just as delta states capture position changes, second-order deltas could capture velocity changes, potentially enabling accurate reconciliation of ballistic trajectories and falling objects that currently violate our temporal stability assumptions.
+
+Consider a projectile with initial velocity $v_0$ and constant acceleration $a$ due to gravity. Current algebraic reconciliation fails because position deltas change each frame as velocity increases. However, the second derivative (acceleration) remains constant, suggesting that synchronizing acceleration rather than position could maintain temporal stability even for accelerating objects. The reconciliation formula would extend to $epsilon = (Delta^2 s - Delta^2 p)$, where $Delta^2$ represents second-order differences.
+
+This approach could elegantly handle several problematic scenarios identified in our experiments. Falling players would be characterized by a constant downward acceleration rather than changing position deltas. Projectiles following parabolic trajectories would require only initial velocity and acceleration vectors. Even complex spring-damper systems could be represented through their differential equations rather than explicit position updates.
+
+The mathematical framework would require extending our Abelian group construction to higher-order derivatives, potentially leveraging Lie group theory for handling rotational dynamics. The practical implementation would need to balance the improved prediction accuracy against the increased complexity of computing and transmitting derivative information.
+
+== Control Theory Applications for Correction Stability
+
+Our experiments revealed that algebraic reconciliation can exhibit overcorrection artifacts when temporal stability assumptions are violated, particularly visible in the characteristic double-peak error pattern during collision recovery. Future work should explore applying control theory principles, specifically PID (Proportional-Integral-Derivative) controllers, to the correction process to reduce oscillation and improve convergence characteristics.
+
+Rather than directly applying the computed correction $epsilon$ to the predicted state, a PID controller would modulate the correction based on the history of prediction errors. The proportional term would apply immediate corrections scaled by the current error magnitude. The integral term would accumulate historical errors to eliminate steady-state bias. The derivative term would dampen rapid changes to prevent overcorrection.
+
+The controller formulation would be:
+$
+s_(t+1) = s_t + K_p epsilon_t + K_i sum_(i=0)^t epsilon_i + K_d (epsilon_t - epsilon_(t-1))
+$
+
+where $K_p$, $K_i$, and $K_d$ are tunable gain parameters that could be optimized per game or even adapted dynamically based on network conditions and recent prediction accuracy.
+
+This approach could significantly improve the subjective quality of reconciliation, transforming abrupt corrections into smooth transitions that are less perceptually jarring. The control framework would also provide formal tools for analyzing stability and convergence properties, potentially enabling automated tuning of reconciliation parameters based on desired response characteristics.
+
+== Predictive Network Modeling
+
+Current implementations react to network conditions but do not anticipate them. Future research should explore predictive models of network behavior that could inform reconciliation strategies. Machine learning techniques could identify patterns in latency variation, packet loss, and player behavior to optimize reconciliation parameters dynamically.
+
+A neural network trained on historical network telemetry could predict upcoming latency spikes, allowing the reconciliation system to preemptively adjust correction rates or switch reconciliation strategies. During periods of predicted network instability, the system might temporarily reduce prediction aggressiveness or increase correction damping to maintain visual smoothness despite degraded synchronization.
+
+== Formal Verification and Property-Based Testing
+
+The mathematical foundation of algebraic reconciliation enables formal verification techniques currently uncommon in game networking. Future work should develop property-based testing frameworks that automatically verify reconciliation correctness by checking algebraic properties rather than specific test cases.
+
+Such frameworks would generate random game states, inputs, and network conditions, then verify that reconciliation maintains convergence properties regardless of the specific scenario. Properties to verify would include: eventual consistency (all clients converge given sufficient time), monotonic error reduction (corrections always reduce divergence), and bounded divergence (prediction errors remain within acceptable limits).
+
+== Conclusion
+
+The future directions outlined in this chapter represent a roadmap for transforming algebraic server reconciliation from a promising research prototype into a practical tool for game developers. The immediate priorities, hybrid architectures and industrial validation, would establish the technique's practical viability. The optimization strategies, Merkle trees and higher-order derivatives, would extend its applicability to broader game genres. The theoretical extensions, control theory and formal verification, would provide the mathematical rigor necessary for widespread adoption.
+
+Each direction offers unique benefits while addressing current limitations, collectively pointing toward a future where game developers can select from a rich palette of mathematically grounded synchronization techniques, each optimized for specific gameplay requirements. The algebraic approach introduced in this thesis represents not an endpoint but rather an opening into a broader exploration of how mathematical structures can inform and improve the design of networked interactive systems.
