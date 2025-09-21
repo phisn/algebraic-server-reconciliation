@@ -111,7 +111,7 @@ export const experiments: Experiment[] = [
     },
 
     {
-        name: "Observe y in collision",
+        name: "Observe y without collision",
         inputs: {
             "player-1": Array.from({ length: 60 * 2 }).map((_, i) =>
                 i % 30 > 15

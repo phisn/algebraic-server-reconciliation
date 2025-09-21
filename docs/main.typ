@@ -1,4 +1,6 @@
 #import "@preview/athena-tu-darmstadt-thesis:0.1.1": *
+#import "@preview/lilaq:0.5.0" as lq
+
 
 // setup the template
 #show: tudapub.with(
@@ -979,22 +981,72 @@ The network configuration simulates moderate latency conditions with a 30-tick d
 
 The experimental results reveal striking similarities between algebraic and rollback reconciliation, validating our theoretical predictions about convergence behavior when temporal stability assumptions are satisfied. We present three perspectives that collectively demonstrate the effectiveness of algebraic reconciliation in maintaining both state consistency and prediction responsiveness.
 
+#let data_chart_1 = json("data/stationary-observed-player-2.json")
 #figure(
-  rect(stroke: 1pt)[Placeholder for Chart: Non-moving player perspective showing observed x-position over time with server view (solid line) and client views for all three reconciliation methods (overlapping dashed lines)],
+  lq.diagram(
+    width: 10cm,
+    title: "Isolated movement from stationary perspective",
+    legend: (position: bottom + left),
+
+    lq.plot(
+      data_chart_1.at("rollback_client_player-2.x"), data_chart_1.at("rollback_client_player-2.y"), label: "Rollback",
+      mark: "none", stroke: (paint: blue, thickness: 2pt, dash: "dashed")
+    ),
+    lq.plot(
+      data_chart_1.at("algebraic_client_player-2.x"), data_chart_1.at("algebraic_client_player-2.y"), label: "Algebraic", 
+      mark: "none", stroke: (paint: purple, thickness: 2pt, dash: "dashed")
+    ),
+    lq.plot(
+      data_chart_1.at("override_server.x"), data_chart_1.at("override_server.y"), label: "Server Truth",
+      mark: "none", stroke: (paint: red, thickness: 2pt)
+    ),
+  ),
   caption: [Player 1's x-position as observed from Player 2's client perspective. The server's authoritative position (solid red) is compared with the client's synchronized view under algebraic (purple dashed), rollback (blue dashed), and override (red dashed) reconciliation strategies. The complete overlap of all three client lines demonstrates perfect convergence across all methods.]
 ) <fig:exp1-stationary>
 
 Figure @fig:exp1-stationary presents the most fundamental test of reconciliation correctness: the ability to maintain consistent state for entities not under local control. From Player 2's stationary perspective, all three reconciliation methods successfully track Player 1's movement pattern, with the dashed lines representing client state perfectly overlapping across algebraic, rollback, and override strategies. This overlap is particularly significant for algebraic reconciliation, as it demonstrates that the correction term $epsilon = Delta s - Delta p$ accurately compensates for unpredicted movements without requiring state rollback or input re-simulation. The periodic shifts in the observed position correspond to Player 1's velocity changes, which propagate to Player 2's client after the network delay. The fact that algebraic reconciliation handles these discontinuous changes as effectively as rollback reconciliation validates our approach to direct algebraic correction.
 
+#let data_chart_1 = json("data/stationary-observed-player-1.json")
 #figure(
-  rect(stroke: 1pt)[Placeholder for Chart: Moving player perspective comparing algebraic (purple dashed) and rollback (blue dashed) reconciliation predictions against server truth (red solid), showing x-position over time],
+  lq.diagram(
+    width: 10cm,
+    title: "Isolated movement from moving perspective",
+    legend: (position: bottom + left),
+
+    lq.plot(
+      data_chart_1.at("rollback_client_player-1.x"), data_chart_1.at("rollback_client_player-1.y"), label: "Rollback",
+      mark: "none", stroke: (paint: blue, thickness: 2pt, dash: "dashed")
+    ),
+    lq.plot(
+      data_chart_1.at("algebraic_client_player-1.x"), data_chart_1.at("algebraic_client_player-1.y"), label: "Algebraic", 
+      mark: "none", stroke: (paint: purple, thickness: 2pt, dash: "dashed")
+    ),
+    lq.plot(
+      data_chart_1.at("override_server.x"), data_chart_1.at("override_server.y"), label: "Server Truth",
+      mark: "none", stroke: (paint: red, thickness: 2pt)
+    ),
+  ),
   caption: [Client-side prediction accuracy from Player 1's perspective. Both algebraic (purple dashed) and rollback (blue dashed) reconciliation produce identical predictions that maintain a consistent offset from the server's authoritative state (red solid), demonstrating equivalent prediction quality.]
 ) <fig:exp1-moving-comparison>
 
 The perspective from Player 1's client, shown in Figure @fig:exp1-moving-comparison, reveals the prediction dynamics that make modern networked games playable despite latency. Both algebraic and rollback reconciliation maintain identical prediction trajectories, consistently leading the server's authoritative position by approximately 30 ticks, exactly the network delay period. This offset represents the fundamental characteristic of client-side prediction: the client shows where the player will be once the server processes their inputs, not where the server currently believes them to be. The perfect alignment between algebraic and rollback predictions confirms that our method preserves the essential responsiveness of client-side prediction while eliminating the computational overhead of repeated simulation. The smooth transitions at velocity change points (every 30 ticks) demonstrate that both methods handle prediction updates gracefully, without introducing additional artifacts or discontinuities.
 
+#let data_chart_1 = json("data/stationary-observe-comparison.json")
 #figure(
-  rect(stroke: 1pt)[Placeholder for Chart: Moving player perspective comparing algebraic (purple dashed) versus override (red dashed) reconciliation, highlighting the responsiveness difference],
+  lq.diagram(
+    width: 10cm,
+    title: "Isolated movement - strategy comparison",
+    legend: (position: bottom + left),
+
+    lq.plot(
+      data_chart_1.at("algebraic_client_player-1.x"), data_chart_1.at("algebraic_client_player-1.y"), label: "Algebraic", 
+      mark: "none", stroke: (paint: purple, thickness: 2pt, dash: "dashed")
+    ),
+    lq.plot(
+      data_chart_1.at("override_client_player-1.x"), data_chart_1.at("override_client_player-1.y"), label: "Override",
+      mark: "none", stroke: (paint: red, thickness: 2pt, dash: "dashed")
+    ),
+  ),
   caption: [Comparison of prediction responsiveness between algebraic (purple dashed) and override (red dashed) reconciliation from Player 1's perspective. The stair-step pattern in override reconciliation reflects the 30-tick delay between input and visible effect, while algebraic reconciliation provides immediate visual feedback.]
 ) <fig:exp1-override>
 
@@ -1032,27 +1084,92 @@ The experimental data reveals distinct behavioral patterns in how algebraic reco
 
 The x-axis represents the primary movement direction for both players, where intentional inputs drive the motion and collisions directly oppose the intended movement. This axis best demonstrates how reconciliation methods handle the conflict between predicted motion and physics-constrained reality.
 
+#let data_chart_1 = json("data/collision-x-observed-player-1.json")
 #figure(
-  rect(stroke: 1pt)[Placeholder for Chart: X-position over time from moving player perspective, showing server (red solid), algebraic (purple dashed), and rollback (blue dashed) reconciliation],
+  lq.diagram(
+    width: 10cm,
+    title: "Players own X axis movement during collision",
+    legend: (position: bottom + right),
+
+    lq.plot(
+      data_chart_1.at("rollback_client_player-1.x"), data_chart_1.at("rollback_client_player-1.y"), label: "Rollback", 
+      mark: "none", stroke: (paint: blue, thickness: 2pt, dash: "dashed")
+    ),
+    lq.plot(
+      data_chart_1.at("algebraic_client_player-1.x"), data_chart_1.at("algebraic_client_player-1.y"), label: "Algebraic", 
+      mark: "none", stroke: (paint: purple, thickness: 2pt, dash: "dashed")
+    ),
+    lq.plot(
+      data_chart_1.at("override_server.x"), data_chart_1.at("override_server.y"), label: "Server Truth",
+      mark: "none", stroke: (paint: red, thickness: 2pt)
+    ),
+  ),
   caption: [Player 1's x-position observed from their own perspective during collision. Both algebraic (purple dashed) and rollback (blue dashed) reconciliation show similar overshooting behavior relative to the server state (red solid), indicating comparable prediction behavior when movement intentions conflict with physics constraints.]
 ) <fig:exp2-x-moving>
 
 Figure @fig:exp2-x-moving demonstrates that from the controlling player's perspective, algebraic and rollback reconciliation produce nearly identical predictions along the primary movement axis. Both methods overshoot the server's position by approximately 40 units at the peak, reflecting the fundamental challenge of predicting through an unknown collision. The overshoot occurs because the client continues predicting rightward movement while the server has already processed the collision and stopped forward progress. The subsequent convergence shows both methods successfully reconciling to the server state once the collision information propagates through the network delay. The slight divergence between algebraic and rollback traces during the collision phase (frames 50-90) suggests minor differences in how the methods handle the rapid state changes, but these differences remain visually negligible from the controlling player's perspective.
 
+#let data_chart_1 = json("data/collision-x-observed-player-2.json")
 #figure(
-  rect(stroke: 1pt)[Placeholder for Chart: X-position from stationary player perspective, comparing algebraic and rollback reconciliation],
+  lq.diagram(
+    width: 10cm,
+    title: "Other players X axis movement during collision",
+    legend: (position: bottom + right),
+
+    lq.plot(
+      data_chart_1.at("rollback_client_player-2.x"), data_chart_1.at("rollback_client_player-2.y"), label: "Rollback", 
+      mark: "none", stroke: (paint: blue, thickness: 2pt, dash: "dashed")
+    ),
+    lq.plot(
+      data_chart_1.at("algebraic_client_player-2.x"), data_chart_1.at("algebraic_client_player-2.y"), label: "Algebraic", 
+      mark: "none", stroke: (paint: purple, thickness: 2pt, dash: "dashed")
+    ),
+    lq.plot(
+      data_chart_1.at("override_server.x"), data_chart_1.at("override_server.y"), label: "Server Truth",
+      mark: "none", stroke: (paint: red, thickness: 2pt)
+    ),
+  ),
   caption: [Player 1's x-position as observed from Player 2's perspective. The algebraic method (purple dashed) shows slightly greater deviation from the server state compared to rollback (blue dashed), revealing increased error when observing other players during collisions.]
 ) <fig:exp2-x-other>
 
 The view from Player 2's perspective, shown in Figure @fig:exp2-x-other, reveals a subtle but important difference between the reconciliation methods. The algebraic approach produces slightly larger deviations from the server state when observing the other player's collision response. This increased error for non-controlled entities suggests that the algebraic correction term ε = Δs - Δp becomes less accurate when applied to states affected by multi-entity interactions, as the correction computed for one player's movement doesn't fully account for the coupled dynamics introduced by the collision.
 
+#let data_chart_1 = json("data/collision-x-compare-player-1.json")
 #figure(
-  rect(stroke: 1pt)[Placeholder for Chart: X-axis difference from server, comparing algebraic (purple) and override (red) from moving player perspective],
+  lq.diagram(
+    width: 10cm,
+    title: "Difference to server of \nplayers own X axis movement during collision",
+    legend: (position: top + right),
+
+    lq.plot(
+      data_chart_1.at("override_client_player-1.x"), data_chart_1.at("override_client_player-1.y"), label: "Override", 
+      mark: "none", stroke: (paint: red, thickness: 2pt, dash: "dashed")
+    ),
+    lq.plot(
+      data_chart_1.at("algebraic_client_player-1.x"), data_chart_1.at("algebraic_client_player-1.y"), label: "Algebraic", 
+      mark: "none", stroke: (paint: purple, thickness: 2pt, dash: "dashed")
+    ),
+  ),
   caption: [Absolute difference from server x-position for Player 1's own view. Algebraic reconciliation (purple dashed) maintains significantly lower error than override reconciliation (red dashed), though both methods struggle during the collision event.]
 ) <fig:exp2-x-diff-self>
 
+
+#let data_chart_1 = json("data/collision-x-compare-player-2.json")
 #figure(
-  rect(stroke: 1pt)[Placeholder for Chart: X-axis difference from server, comparing algebraic and override from other player perspective],
+  lq.diagram(
+    width: 10cm,
+    title: "Difference to server of \nother players X axis movement during collision",
+    legend: (position: top + right),
+
+    lq.plot(
+      data_chart_1.at("override_client_player-2.x"), data_chart_1.at("override_client_player-2.y"), label: "Override", 
+      mark: "none", stroke: (paint: red, thickness: 2pt, dash: "dashed")
+    ),
+    lq.plot(
+      data_chart_1.at("algebraic_client_player-2.x"), data_chart_1.at("algebraic_client_player-2.y"), label: "Algebraic", 
+      mark: "none", stroke: (paint: purple, thickness: 2pt, dash: "dashed")
+    ),
+  ),
   caption: [Absolute difference from server x-position when Player 2 observes Player 1. The algebraic method (purple dashed) shows periods of higher error than override (red dashed), particularly during collision resolution.]
 ) <fig:exp2-x-diff-other>
 
@@ -1062,27 +1179,91 @@ Figures @fig:exp2-x-diff-self and @fig:exp2-x-diff-other compare the absolute er
 
 The y-axis behavior provides unique insights into reconciliation accuracy because neither player intentionally moves along this axis, all y-displacement results from collision forces. This allows us to isolate the reconciliation of unpredicted, physics-induced state changes from the reconciliation of intended movements.
 
+#let data_chart_1 = json("data/collision-y-observed-player-1.json")
 #figure(
-  rect(stroke: 1pt)[Placeholder for Chart: Y-position from moving player perspective, showing server, algebraic, and rollback reconciliation],
+  lq.diagram(
+    width: 10cm,
+    title: "Players own X axis movement during collision",
+    legend: (position: bottom + right),
+
+    lq.plot(
+      data_chart_1.at("rollback_client_player-1.x"), data_chart_1.at("rollback_client_player-1.y"), label: "Rollback", 
+      mark: "none", stroke: (paint: blue, thickness: 2pt, dash: "dashed")
+    ),
+    lq.plot(
+      data_chart_1.at("algebraic_client_player-1.x"), data_chart_1.at("algebraic_client_player-1.y"), label: "Algebraic", 
+      mark: "none", stroke: (paint: purple, thickness: 2pt, dash: "dashed")
+    ),
+    lq.plot(
+      data_chart_1.at("override_server.x"), data_chart_1.at("override_server.y"), label: "Server Truth",
+      mark: "none", stroke: (paint: red, thickness: 2pt)
+    ),
+  ),
   caption: [Player 1's y-position during collision as seen from their own perspective. The algebraic method (purple dashed) exhibits characteristic overcorrection, overshooting the server position (red solid) more dramatically than rollback reconciliation (blue dashed).]
 ) <fig:exp2-y-moving>
 
 Figure @fig:exp2-y-moving reveals the most distinctive characteristic of algebraic reconciliation under violated assumptions: systematic overcorrection. When the server's collision-induced y-displacement arrives at the client, the algebraic method applies this correction to a state that has already been predicting collision effects based on incomplete information. The result is a compounding of corrections that pushes the y-position beyond the server's value by approximately 20 units. This overcorrection gradually resolves as subsequent server updates arrive, but the pattern clearly shows the algebraic method struggling to handle state changes that depend on information not available during prediction.
 
+#let data_chart_1 = json("data/collision-y-observed-player-2.json")
 #figure(
-  rect(stroke: 1pt)[Placeholder for Chart: Y-axis difference from server, comparing algebraic and rollback from moving player perspective],
+  lq.diagram(
+    width: 10cm,
+    title: "Other players X axis movement during collision",
+    legend: (position: top + right),
+
+    lq.plot(
+      data_chart_1.at("rollback_client_player-2.x"), data_chart_1.at("rollback_client_player-2.y"), label: "Rollback", 
+      mark: "none", stroke: (paint: blue, thickness: 2pt, dash: "dashed")
+    ),
+    lq.plot(
+      data_chart_1.at("algebraic_client_player-2.x"), data_chart_1.at("algebraic_client_player-2.y"), label: "Algebraic", 
+      mark: "none", stroke: (paint: purple, thickness: 2pt, dash: "dashed")
+    ),
+    lq.plot(
+      data_chart_1.at("override_server.x"), data_chart_1.at("override_server.y"), label: "Server Truth",
+      mark: "none", stroke: (paint: red, thickness: 2pt)
+    ),
+  ),
   caption: [Absolute y-position error from Player 1's perspective. The algebraic method (purple dashed) shows a characteristic double-peak pattern, with the second peak representing the overcorrection artifact unique to this reconciliation approach.]
 ) <fig:exp2-y-diff-self>
 
 The error analysis in Figure @fig:exp2-y-diff-self provides crucial insight into the overcorrection mechanism. Both methods exhibit an initial error peak when the collision occurs without prediction, but algebraic reconciliation uniquely produces a second, smaller peak approximately 30 frames later. This secondary peak corresponds to the overcorrection being resolved as the server state confirms the players have separated. The double-peak pattern is pathognomonic of algebraic reconciliation's response to state-dependent dynamics: the method first overcorrects when applying delayed corrections to an already-evolved state, then must correct the overcorrection once the dependency resolves.
 
+#let data_chart_1 = json("data/collision-y-compare-player-1.json")
 #figure(
-  rect(stroke: 1pt)[Placeholder for Chart: Y-position from stationary player perspective, comparing all methods],
+  lq.diagram(
+    width: 10cm,
+    title: "Difference to server of \nplayers own Y axis movement during collision",
+    legend: (position: top + right),
+
+    lq.plot(
+      data_chart_1.at("override_client_player-1.x"), data_chart_1.at("override_client_player-1.y"), label: "Override", 
+      mark: "none", stroke: (paint: red, thickness: 2pt, dash: "dashed")
+    ),
+    lq.plot(
+      data_chart_1.at("algebraic_client_player-1.x"), data_chart_1.at("algebraic_client_player-1.y"), label: "Algebraic", 
+      mark: "none", stroke: (paint: purple, thickness: 2pt, dash: "dashed")
+    ),
+  ),
   caption: [Player 1's y-position observed from Player 2's perspective. The algebraic method (purple dashed) shows substantially larger deviation from the server state (red solid) compared to rollback (blue dashed).]
 ) <fig:exp2-y-other>
 
+#let data_chart_1 = json("data/collision-y-compare-player-2.json")
 #figure(
-  rect(stroke: 1pt)[Placeholder for Chart: Y-axis difference from server, stationary player perspective],
+  lq.diagram(
+    width: 10cm,
+    title: "Difference to server of \nother players Y axis movement during collision",
+    legend: (position: top + right),
+
+    lq.plot(
+      data_chart_1.at("override_client_player-2.x"), data_chart_1.at("override_client_player-2.y"), label: "Override", 
+      mark: "none", stroke: (paint: red, thickness: 2pt, dash: "dashed")
+    ),
+    lq.plot(
+      data_chart_1.at("algebraic_client_player-2.x"), data_chart_1.at("algebraic_client_player-2.y"), label: "Algebraic", 
+      mark: "none", stroke: (paint: purple, thickness: 2pt, dash: "dashed")
+    ),
+  ),
   caption: [Y-position error magnitude when Player 2 observes Player 1. The algebraic method (purple dashed) produces errors more than twice as large as rollback reconciliation (blue dashed), highlighting the method's weakness in synchronizing observed collision dynamics.]
 ) <fig:exp2-y-diff-other>
 
@@ -1099,41 +1280,6 @@ However, the significant error amplification when observing other players during
 The asymmetric error characteristics, lower error for controlled entities, higher error for observed entities, suggest a hybrid deployment strategy might be optimal. Games could employ algebraic reconciliation for player-controlled entities where responsiveness is paramount and computational savings are valuable, while using rollback reconciliation for observing other players where accuracy matters more than computational efficiency. This selective application would leverage the strengths of each method while mitigating their respective weaknesses.
 
 The temporal pattern of overcorrection and recovery provides guidance for potential improvements to the algebraic method. The predictable nature of the overcorrection, always occurring one network delay after the initial collision, suggests that adaptive correction factors or damping terms could reduce the artifact magnitude without sacrificing the method's computational advantages. Future work might explore such enhancements to extend algebraic reconciliation's applicability to more complex interaction scenarios.
-
-/*
-Introductory sentence what we will do in this chapter.
-
-== Methodology
-
-We want to show how our newly introduced server reconciliation behaves. To show this we implemented rollback, override and algebraic reconciliation. Additionally we implemented two games, a simple top down view and a simple side scroller view, both with matterjs physics. We are not using actual networking, but simulated sockets, so that we can configure the environment fully. The most important configuration parameter is the round trip delay. All implemented components are freely exchangeable, so that each networking strategy, can be used with arbitrary amounts of simulated sockets or arbitrary games.
-
-We decided to focus on behavior instead of performance, as it is very clear that there is a definite performance improvement. What is not clear, is if the networking strategy behaves well. What we especially want to observe is how our assumption, that predictions should not depend on state change epsilons, affects game behavior in practice. We implemented everything in typescript so that we can easily visuals the data and graphs using react. We build a simple sandbox and experimentation environment visualizing our results.
-
-== Experiment #1
-
-Our first experiment is very simple and only here to show that the algeberic reconciliation works and that our derived convergence works at all. For this we will consider the top down game with two players. We will not let the players directly interact with each other, as we will explore this in later experiments. One player will not move at all and the other player will move around. We want to observe how the moving player behaves on the moving player client and on the other client. We will do this experiment with a delay of 30 frames for a time of 60 frames. The chart will show the x and y values of the moving player over time. We will only show the algebraic networking strategy. As we can see from the chart the 
-
-== Experiment #2
-
-Write the second experiment chapter. Feel free to change the methodology chapter if needed. I will provide you with six charts for the experiment 2 chapter.
-
-Our second experiment is done with the top down game. We place one player on the left and one player on the right, in way, so that they collide with each other without being stuck. They will push each other away making space. This pushing away is what we want to observe and see how exactly the players behave, in both perspectives. Once a player from his own and once a player from the other player perspective. This example is interesting as the physics engine puts constraints on the system. The constraint is no overlapping colliders, so no overlapping players. These constraints introduce dependencies between delta state epsilons and state predictions. Therefore we can observe how exactly the game behaves if these presumptions are broken. We run the experiment at different delays each with a framerate of 60 frames over 3 seconds, therefore simulating 180 frames. We will simulate with delays of 15, 30 and 45 frames. We will observe the x and y values of the players over time. The charts will compare these series between networking strategies as well as between delays. 
-
-first we show the x axis.
-
-1. In this chart we can see a solid red line (server truth), a dashed purple one (algebraic) and a blue dashed one (rollback). It shows the x value from the perspective of the moving player. Both the blue and purple one overlap mostly. As we can see they both overshoot the solid red one quite significantly, as we predict the position more eagerly. From what we can see both networking strategies behave almost identically, which is a desired behavior. Indicating that our assumption is not significant in this case.
-2. Similar to the previous chart we now see the same thing but from the stationary player perspective. The purple line is slightly below the blue one (both with slight curves), even further away from the solid red one, indicating that our strategy is worse. This could indicate that our strategy generally works in showing other players than showing yourself, if compared to the previous experiment.
-3. This chart shows two dashed lines. A red one and a purple one. The red one shows the override reconciliation and the purple one shows algebraic reconciliation. The perspective is from the moving player, we are observing only the x value. The red line is mostly above the red line, with two hills. The purple one is mostly below the red one with only one hill. Both are shown as how different they are from the server baseline. As we can see, our method is achieves results much closer to the server than the override strategy.
-4. This chart shows something very similar to the previous chart and is the counter comparison. It shows the perspective from the other stationary player and is again observing the x value. Now the purple line is for a significant part above the red line. That means that the player will see other people movement more offset than one would with override networking.
-
-from nowon we are showing the y axis.
-
-5. In this chart we see one solid red line (server truth), barely one blue dashed one (rollback) and a solid purple one (algebraic). This time we are looking at the y coordinate from the moving player perspective. This experiment is especially interesting, as previously on the x axis our results are biased by the movement on the x axis. As our movement is not on the y axis, the y axis is more interesting in showing behavior caused by our method. As we can see, the algebraic method (purple) overshoots the target solid red one. Meaning that the epsilon over-corrects and system corrects back later. This fits well with our understanding, as the epsilon comes 30 frames late. First the player predicts the push, then the incoming change pushes the player even further, and this overpushing is corrected 30 frames later after the contact fully stopped. This behavior is to be expected in all systems where interactions happen with our method.
-6. In this image we lok at almost the same as previous chart, but this time the difference to the server value directly. You can see a purple and blue dashed line, where the purple one has two hills and the blue one only one. The first hill is perfectly shared by both but the purple one has a smaller second hill. This second hill is the purest form how we can observe the over-correction. This correction is as we can see not significant as it is smaller than the previous error from server value.
-7. In the next chart we see the solid red line (server truth) and blue as well as purple as previously. But this time we are looking at the y value from the stationary player perspective. As we can see both the blue and purple line overshoot the solid red one. But the overshooting is significantly bigger than the blue one. 
-8. The last chart shows the same thing as the previous one but again as a delta from the server line. We can see the purple line have a much much larger hill than the blue one. Not only does the purple hill go longer, it is at least twice as big as the blue one. That means that rollback reconciliation has a much smaller error than our method. You can interpret it similarly to the x axis, that the error is bigger when looking at other players, compared to looking at yourself. While this was only slightly observable in the x axis, this is very obvious in the y axis. 
-
-*/
 
 = Discussion
 

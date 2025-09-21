@@ -405,77 +405,6 @@ function ExperimentChart({ gameName, gameFactory, experiment, experimentIndex }:
         setHiddenKeys(new Set())
     }, [viewMode, experimentIndex, gameName])
 
-    const handleExport = (format: "svg" | "json") => {
-        if (format === "svg") {
-            const chartId = `chart-${gameName}-${experimentIndex}`
-            const svgElement = document.querySelector(`#${chartId} svg`) as SVGElement
-            if (svgElement) {
-                // Clone the SVG to avoid modifying the original
-                const svgClone = svgElement.cloneNode(true) as SVGElement
-
-                // Get all text elements (including axis labels)
-                const textElements = svgClone.querySelectorAll("text")
-
-                // Apply computed styles inline to ensure they're preserved
-                textElements.forEach(textEl => {
-                    const computedStyle = window.getComputedStyle(textEl)
-                    // Copy important text styles
-                    textEl.style.fontFamily = computedStyle.fontFamily || "sans-serif"
-                    textEl.style.fontSize = computedStyle.fontSize || "12px"
-                    textEl.style.fill = computedStyle.fill || "#9ca3af"
-                    textEl.style.fontWeight = computedStyle.fontWeight || "normal"
-                })
-
-                // Add a title and description for accessibility
-                const title = document.createElementNS("http://www.w3.org/2000/svg", "title")
-                title.textContent = `${gameName} - ${experiment.name} - ${viewMode}`
-                svgClone.insertBefore(title, svgClone.firstChild)
-
-                // Set proper SVG attributes for standalone viewing
-                svgClone.setAttribute("xmlns", "http://www.w3.org/2000/svg")
-                svgClone.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink")
-
-                // Add a white background for better visibility
-                const background = document.createElementNS("http://www.w3.org/2000/svg", "rect")
-                background.setAttribute("width", "100%")
-                background.setAttribute("height", "100%")
-                background.setAttribute("fill", "white")
-                svgClone.insertBefore(background, svgClone.firstChild)
-
-                const svgData = new XMLSerializer().serializeToString(svgClone)
-                const blob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" })
-                const url = URL.createObjectURL(blob)
-                const link = document.createElement("a")
-                link.href = url
-                link.download = `${gameName}-${experiment.name.replace(/\s+/g, "-")}-${viewMode}.svg`
-                link.click()
-                URL.revokeObjectURL(url)
-            }
-        } else {
-            const exportData = {
-                game: gameName,
-                experiment: experiment.name,
-                viewMode,
-                observe: experiment.observe,
-                clients: Object.keys(experiment.inputs),
-                duration: experiment.length,
-                divergence: divergenceData,
-                observed: observedData,
-                comparison: comparisonData,
-                timestamp: new Date().toISOString(),
-            }
-            const blob = new Blob([JSON.stringify(exportData, null, 2)], {
-                type: "application/json",
-            })
-            const url = URL.createObjectURL(blob)
-            const link = document.createElement("a")
-            link.href = url
-            link.download = `${gameName}-${experiment.name.replace(/\s+/g, "-")}-${viewMode}.json`
-            link.click()
-            URL.revokeObjectURL(url)
-        }
-    }
-
     const clientIds = Object.keys(experiment.inputs)
     const clientCount = clientIds.length
     const hasObservedData = experiment.observe && observedData.length > 0
@@ -573,7 +502,6 @@ function ExperimentChart({ gameName, gameFactory, experiment, experimentIndex }:
         )
     }
 
-    // ---- NEW: Compute Y-axis domain as ±10% padding around visible series ----
     const yDomain: [number, number] = useMemo(() => {
         const visibleKeys = chartLines.map(l => l.key).filter(k => !hiddenKeys.has(k))
 
@@ -616,6 +544,76 @@ function ExperimentChart({ gameName, gameFactory, experiment, experimentIndex }:
 
         return [lower, upper]
     }, [chartData, chartLines, hiddenKeys, viewMode])
+
+    const handleExport = (format: "svg" | "json") => {
+        if (format === "svg") {
+            const chartId = `chart-${gameName}-${experimentIndex}`
+            const svgElement = document.querySelector(`#${chartId} svg`) as SVGElement
+            if (svgElement) {
+                // Clone the SVG to avoid modifying the original
+                const svgClone = svgElement.cloneNode(true) as SVGElement
+
+                // Get all text elements (including axis labels)
+                const textElements = svgClone.querySelectorAll("text")
+
+                // Apply computed styles inline to ensure they're preserved
+                textElements.forEach(textEl => {
+                    const computedStyle = window.getComputedStyle(textEl)
+                    // Copy important text styles
+                    textEl.style.fontFamily = computedStyle.fontFamily || "sans-serif"
+                    textEl.style.fontSize = computedStyle.fontSize || "12px"
+                    textEl.style.fill = computedStyle.fill || "#9ca3af"
+                    textEl.style.fontWeight = computedStyle.fontWeight || "normal"
+                })
+
+                // Add a title and description for accessibility
+                const title = document.createElementNS("http://www.w3.org/2000/svg", "title")
+                title.textContent = `${gameName} - ${experiment.name} - ${viewMode}`
+                svgClone.insertBefore(title, svgClone.firstChild)
+
+                // Set proper SVG attributes for standalone viewing
+                svgClone.setAttribute("xmlns", "http://www.w3.org/2000/svg")
+                svgClone.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink")
+
+                // Add a white background for better visibility
+                const background = document.createElementNS("http://www.w3.org/2000/svg", "rect")
+                background.setAttribute("width", "100%")
+                background.setAttribute("height", "100%")
+                background.setAttribute("fill", "white")
+                svgClone.insertBefore(background, svgClone.firstChild)
+
+                const svgData = new XMLSerializer().serializeToString(svgClone)
+                const blob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" })
+                const url = URL.createObjectURL(blob)
+                const link = document.createElement("a")
+                link.href = url
+                link.download = `${gameName}-${experiment.name.replace(/\s+/g, "-")}-${viewMode}.svg`
+                link.click()
+                URL.revokeObjectURL(url)
+            }
+        } else {
+            const exportData: Record<string, object> = {}
+
+            for (const line of chartLines) {
+                if (hiddenKeys.has(line.key)) {
+                    continue
+                }
+
+                exportData[`${line.key}.x`] = chartData.map(x => x.tick)
+                exportData[`${line.key}.y`] = chartData.map(x => x[line.key])
+            }
+
+            const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+                type: "application/json",
+            })
+            const url = URL.createObjectURL(blob)
+            const link = document.createElement("a")
+            link.href = url
+            link.download = `${gameName}-${experiment.name.replace(/\s+/g, "-")}-${viewMode}.json`
+            link.click()
+            URL.revokeObjectURL(url)
+        }
+    }
 
     return (
         <div className="card bg-base-100 shadow-xl">
