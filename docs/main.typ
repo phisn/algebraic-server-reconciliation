@@ -22,6 +22,16 @@
     This thesis introduces algebraic server reconciliation, a novel method that eliminates this re-simulation overhead. By representing state changes as elements of an abelian group, our method enables the direct algebraic correction of predicted states through a single mathematical operation, reducing computational complexity to constant time (O(1)) per reconciliation event. We provide a formal framework for constructing suitable abelian groups for Entity Component System (ECS) architectures and prove the method's convergence.
 
     Experimental evaluation demonstrates that algebraic reconciliation achieves synchronization quality comparable to rollback for position-based movement. While the method exhibits characteristic overcorrection artifacts during complex physics interactions that violate its underlying assumptions, performance analysis confirms the elimination of re-simulation overhead. Our work adapts concepts from Conflict-Free Replicated Data Types (CRDTs) to client-server game architectures, offering a computationally efficient alternative for genres such as MOBAs, RTS games, and large-scale battle royales where its mathematical assumptions align with gameplay mechanics.
+
+    #pagebreak()
+
+    == German Abstract
+
+    Vernetzte Echtzeit-Mehrspielerspiele müssen trotz Netzwerklatenz einen konsistenten Spielzustand über alle Clients hinweg aufrechterhalten. Die vorherrschende Lösung, clientseitige Vorhersage mit Rollback-Reconciliation, bietet Reaktionsfähigkeit durch spekulative Simulation von Spieleraktionen und anschließende Korrektur von Fehlvorhersagen durch Neusimulation ausgehend von autoritativen Serverzuständen. Dieser Ansatz ist zwar effektiv, verursacht jedoch einen erheblichen Rechenaufwand, der linear (O(n)) mit der Anzahl der neu zu simulierenden Frames skaliert.
+
+    Diese Arbeit stellt die algebraische Server-Reconciliation vor, eine neuartige Methode, die diesen Neusimulationsaufwand eliminiert. Durch die Darstellung von Zustandsänderungen als Elemente einer abelschen Gruppe ermöglicht unsere Methode die direkte algebraische Korrektur vorhergesagter Zustände durch eine einzelne mathematische Operation und reduziert die Rechenkomplexität auf konstante Zeit (O(1)) pro Reconciliation-Ereignis. Wir liefern ein formales Framework zur Konstruktion geeigneter abelscher Gruppen für Entity Component System (ECS) Architekturen und beweisen die Konvergenz der Methode.
+    
+    Die experimentelle Evaluierung zeigt, dass die algebraische Reconciliation eine mit Rollback vergleichbare Synchronisationsqualität für positionsbasierte Bewegungen erreicht. Während die Methode charakteristische Überkorrektur-Artefakte bei komplexen Physikinteraktionen aufweist, die ihre zugrundeliegenden Annahmen verletzen, bestätigt die Leistungsanalyse die Eliminierung des Neusimulationsaufwands. Unsere Arbeit adaptiert Konzepte von Conflict-Free Replicated Data Types (CRDTs) für Client-Server-Spielearchitekturen und bietet eine rechnerisch effiziente Alternative für Genres wie MOBAs, RTS-Spiele und großangelegte Battle Royales, bei denen die mathematischen Annahmen mit den Spielmechaniken übereinstimmen.
   ],
 
   bib: bibliography("refs.bib", full: true, style: "ieee.csl"),
@@ -885,7 +895,7 @@ The overall structure and communication pathways of the client-side networking l
 
 #pad(
   figure(
-    pad(top: 15pt, bottom: 15pt, image("diagrams/design-detail-client.svg")),
+    pad(top: 15pt, bottom: 15pt, image("diagrams/design-detail-client.svg", width: 90%)),
     caption: [
       Client-side networking components and dataflow, detailing the processing of local player inputs, incoming server changes and events, and the interaction between prediction and reconciliation modules.
     ],
